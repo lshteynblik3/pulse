@@ -11,6 +11,9 @@ export default function Home() {
           <code>GET /api/summary/today</code> — total minutes per app for today
         </li>
       </ul>
+      <p>
+        <a href="/dashboard">View today&apos;s dashboard →</a>
+      </p>
     </main>
   );
 }
