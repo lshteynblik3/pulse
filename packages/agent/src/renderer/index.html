@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'" />
+    <title>Pulse</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 18px;
+        color: #1a1a1a;
+      }
+      .label {
+        color: #666;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .app {
+        font-size: 22px;
+        font-weight: 600;
+        margin-top: 6px;
+        word-break: break-word;
+      }
+      .hint {
+        margin-top: 16px;
+        color: #999;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="label">Currently tracking</div>
+    <div class="app" id="app">…</div>
+    <div class="hint">App name only — never window titles, URLs, or content.</div>
+    <script src="./renderer.js"></script>
+  </body>
+</html>
