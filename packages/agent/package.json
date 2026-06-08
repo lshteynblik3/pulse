@@ -2,12 +2,19 @@
   "name": "@pulse/agent",
   "version": "0.0.0",
   "private": true,
-  "description": "Pulse desktop agent (placeholder — built in Phase 1+).",
-  "type": "module",
+  "description": "Pulse desktop agent — minimal Electron tray tracker (Phase 1).",
+  "main": "dist/main.js",
   "scripts": {
+    "build": "tsc",
+    "dev": "tsc && electron .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pulse/shared": "workspace:*"
+    "@pulse/shared": "workspace:*",
+    "active-win": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "electron": "^33.0.0"
   }
 }

@@ -8,9 +8,15 @@
     "node": ">=22"
   },
   "scripts": {
-    "typecheck": "pnpm -r run typecheck"
+    "typecheck": "pnpm -r run typecheck",
+    "dev:web": "pnpm --filter @pulse/web dev",
+    "build:web": "pnpm --filter @pulse/web build",
+    "dev:agent": "pnpm --filter @pulse/agent dev"
   },
   "devDependencies": {
     "typescript": "^6.0.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron", "active-win"]
   }
 }
