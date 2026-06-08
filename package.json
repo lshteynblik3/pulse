@@ -1,0 +1,16 @@
+{
+  "name": "pulse",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pulse — privacy-first focus & productivity tracking (monorepo root)",
+  "packageManager": "pnpm@10.18.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r run typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

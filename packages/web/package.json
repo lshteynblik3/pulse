@@ -1,0 +1,13 @@
+{
+  "name": "@pulse/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pulse web app (placeholder — Next.js added in Phase 1).",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pulse/shared": "workspace:*"
+  }
+}
