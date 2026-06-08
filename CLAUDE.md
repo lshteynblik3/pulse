@@ -1,4 +1,5 @@
 # CLAUDE.md
+CURRENT PHASE: Phase 1 Done! Start Phase 2...
 
 Context for working on **Pulse**. Read this at the start of every session.
 Full detail lives in `SPEC.md` — read it before any architectural work.
@@ -56,8 +57,10 @@ surveillance — that shapes the architecture.
 
 ## Current phase
 
-Phase 0 — scaffolding + defining the `shared` data contract. Don't build features ahead
-of the current phase; get a thin slice working end-to-end first.
+Phase 1 — DONE. Thin vertical slice works end to end: Electron agent → `/api/ingest` →
+Supabase `raw_events` → `/dashboard`, on real data. Next up: Phase 2 (real agent —
+categorization, idle detection, focus blocks, local aggregation; stop sending raw events
+and send only `DailySummary`). Don't build features ahead of the current phase.
 
 ## Commands
 
