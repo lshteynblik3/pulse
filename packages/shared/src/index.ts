@@ -14,6 +14,11 @@
  * the types here may grow a field that would carry forbidden content.
  */
 
+// The scoring contract (Phase 3): WorkSchedule, the function return types, and
+// ScoredDay. Kept in a sibling file but re-exported here so consumers import
+// everything from "@pulse/shared".
+export * from './scoring';
+
 /**
  * The fixed set of buckets every tracked application is classified into.
  *
