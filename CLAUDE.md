@@ -1,5 +1,5 @@
 # CLAUDE.md
-CURRENT PHASE: Phase 1 Done! Start Phase 2...
+CURRENT PHASE: Phase 2 done. Begining phase 3...
 
 Context for working on **Pulse**. Read this at the start of every session.
 Full detail lives in `SPEC.md` — read it before any architectural work.

@@ -1,19 +1,38 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  nativeImage,
+  ipcMain,
+  powerMonitor,
+} from 'electron';
 import * as path from 'node:path';
-import type { ActivityEvent } from '@pulse/shared';
+import * as fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import type { Category } from '@pulse/shared';
+import { DayAggregator } from './aggregator.js';
+import { loadCategoryConfig, type CategoryConfig } from './config.js';
+import { localDateString } from './time.js';
 
 // ---------------------------------------------------------------------------
 // Config — easy to find at the top.
 // ---------------------------------------------------------------------------
 
-/** Where batches of ActivityEvents are sent. Phase 1 talks to the local web app. */
+/** The ONLY thing the agent sends: a DailySummary, every flush. */
 const INGEST_URL = 'http://localhost:3000/api/ingest';
 
-/** How often we sample the focused app. */
+/** How often we sample the focused app + idle state. */
 const POLL_INTERVAL_MS = 5_000;
 
-/** How often the buffered events are POSTed to the backend. */
-const FLUSH_INTERVAL_MS = 60_000;
+/** How often the current DailySummary is upserted to the backend. */
+const FLUSH_INTERVAL_MS = 15 * 60 * 1000;
+
+/** No input for this many seconds = idle (SPEC: "no input > 3 min"). */
+const IDLE_THRESHOLD_SECONDS = 180;
+
+/** Stamped into every DailySummary. */
+const AGENT_VERSION = '0.2.0';
 
 // ---------------------------------------------------------------------------
 // State.
@@ -24,15 +43,21 @@ let win: BrowserWindow | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 
-/** Events captured but not yet successfully sent. */
-let buffer: ActivityEvent[] = [];
-/** Timestamp of the previous poll, used as the start of the next interval. */
+let config: CategoryConfig;
+let aggregator: DayAggregator;
+let deviceId: string;
+
+/** "Mark private": when true, the agent captures nothing at all. */
+let paused = false;
+/** Timestamp of the previous poll; null means "don't form a slice this poll". */
 let lastPollAt: number | null = null;
-/** Name of the app currently focused (for the tray window). */
+/** Last non-idle app name, for display. */
 let currentApp = '(none)';
+let quitting = false;
 
 // ---------------------------------------------------------------------------
-// active-win is ESM-only, so load it via a dynamic import from this CJS module.
+// active-win is ESM-only: load it via dynamic import from this CJS module.
+// We read the application NAME only — never titles/URLs (CLAUDE.md rule #1).
 // ---------------------------------------------------------------------------
 
 type ActiveWindowResult = { owner?: { name?: string } } | undefined;
@@ -52,66 +77,134 @@ async function getActiveWindowFn(): Promise<ActiveWindowFn> {
 }
 
 // ---------------------------------------------------------------------------
-// Tracking.
+// Device identity.
+//
+// TEMPORARY (Phase 2): with no auth yet, we identify this machine by a UUID
+// persisted in userData and reused forever. Phase 4 replaces this with the
+// authenticated user's account id.
+// ---------------------------------------------------------------------------
+
+function loadOrCreateDeviceId(): string {
+  const file = path.join(app.getPath('userData'), 'device-id.json');
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { deviceId?: unknown };
+    if (typeof parsed.deviceId === 'string' && parsed.deviceId.length > 0) {
+      return parsed.deviceId;
+    }
+  } catch {
+    // File doesn't exist yet — fall through and create it.
+  }
+  const id = randomUUID();
+  fs.writeFileSync(file, JSON.stringify({ deviceId: id }, null, 2));
+  return id;
+}
+
+function loadConfigOrDefault(): CategoryConfig {
+  const file = path.join(__dirname, '../config/categories.json');
+  try {
+    return loadCategoryConfig(file);
+  } catch (err) {
+    console.error('Failed to load categories.json — every app will be "other":', err);
+    return {
+      productive: new Set<Category>(),
+      categorize: () => 'other',
+      isProductive: () => false,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tracking loop.
 // ---------------------------------------------------------------------------
 
 async function poll(): Promise<void> {
-  let name = currentApp;
-  try {
-    const activeWindow = await getActiveWindowFn();
-    const result = await activeWindow();
-    // PRIVACY: read the application NAME only. We deliberately never touch
-    // result.title, result.url, or any other field (CLAUDE.md hard rule #1).
-    name = result?.owner?.name?.trim() || '(unknown)';
-  } catch (err) {
-    console.error('active-win failed:', err);
+  const now = Date.now();
+  const today = localDateString(new Date(now));
+
+  // (2) Day rollover: flush the finished day, then start a fresh aggregator.
+  if (today !== aggregator.date) {
+    await flushSummary();
+    aggregator = new DayAggregator(today);
+    lastPollAt = null; // never form a slice spanning midnight
+  }
+
+  // (4) Paused = "mark private": capture nothing, close any open focus run.
+  if (paused) {
+    aggregator.interrupt();
+    lastPollAt = null;
+    updateStatus();
     return;
   }
 
-  const now = Date.now();
-  if (lastPollAt !== null) {
-    // Attribute the elapsed interval to the app we just observed. No
-    // categorization or idle detection yet — that arrives in Phase 2.
-    const event: ActivityEvent = {
-      appName: name,
-      category: 'other',
-      startedAt: new Date(lastPollAt).toISOString(),
-      endedAt: new Date(now).toISOString(),
-      idle: false,
-    };
-    buffer.push(event);
+  // (1) Idle detection. getSystemIdleTime() returns ONLY seconds-since-last-input
+  // (a duration, never the input). A locked screen counts as idle too.
+  const idleSeconds = powerMonitor.getSystemIdleTime();
+  const locked = powerMonitor.getSystemIdleState(IDLE_THRESHOLD_SECONDS) === 'locked';
+  const idle = idleSeconds >= IDLE_THRESHOLD_SECONDS || locked;
+
+  let appName = currentApp;
+  if (!idle) {
+    try {
+      const activeWindow = await getActiveWindowFn();
+      const result = await activeWindow();
+      appName = result?.owner?.name?.trim() || '(unknown)';
+    } catch (err) {
+      console.error('active-win failed:', err);
+      lastPollAt = now; // prime, skip this slice
+      return;
+    }
   }
+
+  if (lastPollAt !== null) {
+    // (1) Clamp slice duration to the poll interval so a sleep/wake gap can't
+    // produce a multi-hour slice.
+    const durationMs = Math.min(now - lastPollAt, POLL_INTERVAL_MS);
+    const category: Category = idle ? 'other' : config.categorize(appName);
+    aggregator.addSlice({ startMs: now - durationMs, endMs: now, category, idle }, config);
+  }
+
   lastPollAt = now;
-  currentApp = name;
-  win?.webContents.send('tracked-app', name);
+  if (!idle) currentApp = appName;
+  updateStatus(idle ? '(idle)' : appName);
 }
 
-async function flush(): Promise<void> {
-  if (buffer.length === 0) return;
-  const batch = buffer;
-  buffer = [];
+// (3) Every flush is a full upsert of the current DailySummary. No deltas, no
+// "skip if unchanged" — re-sending the same cumulative summary is idempotent.
+async function flushSummary(): Promise<void> {
+  const summary = aggregator.buildSummary(deviceId, AGENT_VERSION);
   try {
     const res = await fetch(INGEST_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(batch),
+      body: JSON.stringify(summary),
     });
     if (!res.ok) throw new Error(`ingest responded ${res.status}`);
-    console.log(`Sent ${batch.length} event(s) to ${INGEST_URL}`);
+    console.log(
+      `Flushed ${summary.date}: active ${summary.activeMinutes}m, focus ${summary.focusMinutes}m, blocks ${summary.focusBlockCount}`,
+    );
   } catch (err) {
-    // Keep the events and retry on the next cycle (e.g. web app not running yet).
-    console.error('Failed to send batch, will retry next cycle:', err);
-    buffer = batch.concat(buffer);
+    // Keep the in-memory totals; the next 15-min flush resends the full summary.
+    console.error('Flush failed (will retry next interval):', err);
   }
 }
 
 // ---------------------------------------------------------------------------
-// UI: tray + tiny status window.
+// Pause ("mark private").
+// ---------------------------------------------------------------------------
+
+function setPaused(value: boolean): void {
+  paused = value;
+  if (paused) aggregator.interrupt();
+  lastPollAt = null;
+  rebuildTrayMenu();
+  updateStatus();
+}
+
+// ---------------------------------------------------------------------------
+// UI: tray + status window.
 // ---------------------------------------------------------------------------
 
 function makeTrayIcon(): Electron.NativeImage {
-  // A simple 16x16 solid square so we don't ship a binary asset. Bytes are
-  // BGRA per the platform bitmap format.
   const size = 16;
   const buf = Buffer.alloc(size * size * 4);
   for (let i = 0; i < size * size; i++) {
@@ -123,10 +216,40 @@ function makeTrayIcon(): Electron.NativeImage {
   return nativeImage.createFromBitmap(buf, { width: size, height: size });
 }
 
+function statusLabel(appOverride?: string): string {
+  if (paused) return 'paused (private)';
+  return appOverride ?? currentApp;
+}
+
+function updateStatus(appOverride?: string): void {
+  const label = statusLabel(appOverride);
+  tray?.setToolTip(`Pulse — ${label}`);
+  win?.webContents.send('status', { paused, app: label });
+}
+
+function rebuildTrayMenu(): void {
+  if (!tray) return;
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: paused ? 'Tracking PAUSED (private)' : 'Tracking active', enabled: false },
+      { type: 'separator' },
+      {
+        label: 'Mark private (pause tracking)',
+        type: 'checkbox',
+        checked: paused,
+        click: (item) => setPaused(item.checked),
+      },
+      { label: 'Show Pulse', click: showWindow },
+      { type: 'separator' },
+      { label: 'Quit', click: () => app.quit() },
+    ]),
+  );
+}
+
 function createWindow(): void {
   win = new BrowserWindow({
-    width: 320,
-    height: 170,
+    width: 380,
+    height: 520,
     resizable: false,
     title: 'Pulse',
     webPreferences: {
@@ -136,9 +259,7 @@ function createWindow(): void {
     },
   });
   void win.loadFile(path.join(__dirname, '../src/renderer/index.html'));
-  win.webContents.on('did-finish-load', () => {
-    win?.webContents.send('tracked-app', currentApp);
-  });
+  win.webContents.on('did-finish-load', () => updateStatus());
   win.on('closed', () => {
     win = null;
   });
@@ -151,14 +272,7 @@ function showWindow(): void {
 
 function createTray(): void {
   tray = new Tray(makeTrayIcon());
-  tray.setToolTip('Pulse — tracking focus');
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: 'Show Pulse', click: showWindow },
-      { type: 'separator' },
-      { label: 'Quit', click: () => app.quit() },
-    ]),
-  );
+  rebuildTrayMenu();
   tray.on('click', () => {
     if (win?.isVisible()) win.hide();
     else showWindow();
@@ -170,19 +284,54 @@ function createTray(): void {
 // ---------------------------------------------------------------------------
 
 void app.whenReady().then(() => {
+  config = loadConfigOrDefault();
+  deviceId = loadOrCreateDeviceId();
+  aggregator = new DayAggregator(localDateString(new Date()));
+
   createTray();
   createWindow();
-  void poll(); // prime lastPollAt immediately
+
+  // IPC for the renderer (Transparency panel + toggle).
+  ipcMain.handle('set-paused', (_e, value: unknown) => {
+    setPaused(Boolean(value));
+    return paused;
+  });
+  ipcMain.handle('get-status', () => ({ paused, app: statusLabel() }));
+
+  // (1) Sleep/wake + lock/unlock: close any open focus run and avoid forming a
+  // slice across the gap. Idle detection already treats a locked screen as idle;
+  // these handlers make the run-break explicit and reset the slice clock.
+  powerMonitor.on('suspend', () => {
+    aggregator.interrupt();
+    lastPollAt = null;
+  });
+  powerMonitor.on('resume', () => {
+    lastPollAt = null;
+  });
+  powerMonitor.on('lock-screen', () => {
+    aggregator.interrupt();
+    lastPollAt = null;
+  });
+  powerMonitor.on('unlock-screen', () => {
+    lastPollAt = null;
+  });
+
+  void poll(); // prime lastPollAt
   pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
-  flushTimer = setInterval(() => void flush(), FLUSH_INTERVAL_MS);
+  flushTimer = setInterval(() => void flushSummary(), FLUSH_INTERVAL_MS);
 });
 
 // Stay alive in the tray when the window is closed.
 app.on('window-all-closed', () => {
-  /* intentionally do nothing — this is a tray app */
+  /* tray app — do not quit */
 });
 
-app.on('before-quit', () => {
+// Final flush on quit so the last interval isn't lost.
+app.on('before-quit', (e) => {
+  if (quitting) return;
+  e.preventDefault();
+  quitting = true;
   if (pollTimer) clearInterval(pollTimer);
   if (flushTimer) clearInterval(flushTimer);
+  void flushSummary().finally(() => app.exit(0));
 });

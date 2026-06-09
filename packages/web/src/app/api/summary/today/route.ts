@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import type { DailySummary } from '@pulse/shared';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
 // Always read fresh from the database.
@@ -7,45 +8,44 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/summary/today
  *
- * Returns total tracked minutes per app_name for "today". Phase 1 is single-user
- * and has no auth, so "today" is the server's local calendar day and all rows
- * count. Per-user scoping and the user's own timezone arrive in Phase 4.
+ * Returns the most recent DailySummary as `{ summary }` (or `{ summary: null }`
+ * when there's no data yet). Phase 2 is still pre-auth and single-user, so we
+ * return the latest row by date. Per-user scoping and selecting the viewer's own
+ * local "today" arrive with auth in Phase 4.
  *
- * Aggregation is done in JS (sum of ended_at − started_at, grouped by app_name)
- * to keep Phase 1 to a single table with no extra views or RPC functions.
+ * The `date` is whatever local day the agent computed and sent — the server does
+ * no timezone math on it.
  */
 export async function GET() {
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfTomorrow = new Date(startOfDay);
-  startOfTomorrow.setDate(startOfDay.getDate() + 1);
-
   const { data, error } = await getSupabaseAdmin()
-    .from('raw_events')
-    .select('app_name, started_at, ended_at')
-    .gte('started_at', startOfDay.toISOString())
-    .lt('started_at', startOfTomorrow.toISOString());
+    .from('daily_summaries')
+    .select('*')
+    .order('date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const minutesByApp = new Map<string, number>();
-  for (const row of data ?? []) {
-    const ms = new Date(row.ended_at).getTime() - new Date(row.started_at).getTime();
-    if (!Number.isFinite(ms) || ms <= 0) continue; // skip bad/zero-length rows
-    const minutes = ms / 60_000;
-    minutesByApp.set(row.app_name, (minutesByApp.get(row.app_name) ?? 0) + minutes);
+  if (!data) {
+    return NextResponse.json({ summary: null });
   }
 
-  const apps = [...minutesByApp.entries()]
-    .map(([appName, minutes]) => ({ appName, minutes: Math.round(minutes * 10) / 10 }))
-    .sort((a, b) => b.minutes - a.minutes);
+  // Map the snake_case row back to the camelCase DailySummary contract.
+  const summary: DailySummary = {
+    userId: data.user_id,
+    date: data.date,
+    activeMinutes: data.active_minutes,
+    focusMinutes: data.focus_minutes,
+    meetingMinutes: data.meeting_minutes,
+    categoryBreakdown: data.category_breakdown,
+    focusBlockCount: data.focus_block_count,
+    focusBlockMinutes: data.focus_block_minutes,
+    hourlyFocusMinutes: data.hourly_focus_minutes,
+    tasksCompleted: data.tasks_completed,
+    agentVersion: data.agent_version,
+  };
 
-  const totalMinutes = Math.round(apps.reduce((sum, a) => sum + a.minutes, 0) * 10) / 10;
-
-  // YYYY-MM-DD for the local day.
-  const date = `${startOfDay.getFullYear()}-${String(startOfDay.getMonth() + 1).padStart(2, '0')}-${String(startOfDay.getDate()).padStart(2, '0')}`;
-
-  return NextResponse.json({ date, totalMinutes, apps });
+  return NextResponse.json({ summary });
 }
