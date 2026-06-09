@@ -10,31 +10,59 @@
         margin: 0;
         padding: 18px;
         color: #1a1a1a;
+        font-size: 13px;
+        line-height: 1.45;
       }
-      .label {
-        color: #666;
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-      .app {
-        font-size: 22px;
-        font-weight: 600;
-        margin-top: 6px;
-        word-break: break-word;
-      }
-      .hint {
-        margin-top: 16px;
-        color: #999;
-        font-size: 11px;
-        line-height: 1.4;
-      }
+      h1 { font-size: 16px; margin: 0 0 12px; }
+      h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin: 18px 0 6px; }
+      .label { color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+      .app { font-size: 20px; font-weight: 600; margin-top: 4px; word-break: break-word; }
+      .status-paused { color: #b00020; }
+      ul { margin: 0; padding-left: 18px; }
+      li { margin-bottom: 3px; }
+      .never li { color: #b00020; }
+      .toggle { margin-top: 18px; display: flex; align-items: center; gap: 8px; }
+      .hint { color: #999; font-size: 11px; margin-top: 6px; }
     </style>
   </head>
   <body>
+    <h1>Pulse</h1>
+
     <div class="label">Currently tracking</div>
     <div class="app" id="app">…</div>
-    <div class="hint">App name only — never window titles, URLs, or content.</div>
+
+    <div class="toggle">
+      <input type="checkbox" id="private-toggle" />
+      <label for="private-toggle">Mark private (pause tracking)</label>
+    </div>
+    <div class="hint" id="paused-hint" style="display: none">
+      Tracking is paused. Nothing is being captured.
+    </div>
+
+    <h2>What Pulse collects</h2>
+    <ul>
+      <li>The <strong>name</strong> of your active application, mapped to a category (e.g. "Visual Studio Code" → development). The app name only — never the window title.</li>
+      <li>Active vs. idle time (idle = no input for over 3 minutes), measured as seconds since your last input — never the input itself.</li>
+      <li>Focus-block timing (runs of 25+ minutes of uninterrupted productive activity).</li>
+      <li>Focus minutes per hour of your local day.</li>
+    </ul>
+    <div class="hint">
+      Only the aggregated daily summary leaves this machine — never raw per-app
+      events. Meeting minutes and task counts are part of the data contract but
+      are not collected yet (sent as 0 until calendar/PM integrations).
+    </div>
+
+    <h2>What Pulse never collects</h2>
+    <ul class="never">
+      <li>keystrokes</li>
+      <li>screen contents / screenshots</li>
+      <li>window titles</li>
+      <li>URLs or browsing history</li>
+      <li>message or document contents</li>
+      <li>mouse-movement logging</li>
+      <li>webcam / mic</li>
+    </ul>
+
     <script src="./renderer.js"></script>
   </body>
 </html>
