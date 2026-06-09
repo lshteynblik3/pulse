@@ -244,6 +244,12 @@ focus-score formula and any assumptions before implementing.
 **Key ideas**
 - Single-player value. After this, you can use Pulse on yourself every day.
 - Matches the employee view of the mockup.
+- Settings: WorkSchedule UI (working days, daily hours, vacation dates), 
+  stored in a user_settings table, loaded by API and passed into scoring.
+- Tray polish: direct link to dashboard, tiny daily-score readout, 
+  professional icon. Fold into the Phase 4 polish pass.
+- Streak UX: show endReason ("ended Tuesday — no data") rather than 
+  silent reset.
 
 **Guiding principles for this phase:** build for one user first; clear conventional UI;
 protect every data route by the authenticated user.
