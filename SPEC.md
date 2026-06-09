@@ -177,6 +177,16 @@ conversations there, before building integrations and billing.
 
 ## Decisions still open
 
+- WorkSchedule: per-user working days, daily hours, vacation dates, 
+  breaks. Threaded through scoring from Phase 3. Settings UI + storage 
+  in Phase 4.
+- Adaptive scoring weights per user: drift weights with usage vs explicit 
+  archetypes (maker / manager / mixed). Defer until ≥4 weeks of real data 
+  from a handful of users — drifting weights silently makes scores opaque, 
+  which works against the product's trust story. Revisit post-Phase 6.
+- Streak grace policy: currently 1 forgiven missed working day per rolling 
+  14-working-day window. Revisit once agent reliability is known.
+
 - Agent long-term: stay on Electron, or rewrite in Tauri/Rust/Go for a smaller footprint
   before scaling to thousands of machines?
 - Tasks-completed source for users whose work isn't in a PM tool (self-report UI?)

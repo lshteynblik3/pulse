@@ -1,5 +1,5 @@
 # CLAUDE.md
-CURRENT PHASE: Phase 2 done. Begining phase 3...
+CURRENT PHASE: Phase 3 done. Beginning Phase 4 — employee dashboard + auth.
 
 Context for working on **Pulse**. Read this at the start of every session.
 Full detail lives in `SPEC.md` — read it before any architectural work.
