@@ -1,0 +1,44 @@
+{
+  "_comment": "Edit this file to control how apps are categorized and which categories count as focus. Restart the agent to reload. App names are matched case-insensitively against the active app's name (never its window title).",
+
+  "productiveCategories": ["development", "communication", "creative"],
+
+  "apps": {
+    "Visual Studio Code": "development",
+    "Code": "development",
+    "Cursor": "development",
+    "iTerm2": "development",
+    "Terminal": "development",
+    "Windows Terminal": "development",
+    "WindowsTerminal": "development",
+    "Warp": "development",
+    "Xcode": "development",
+
+    "Slack": "communication",
+    "Microsoft Teams": "communication",
+    "Discord": "communication",
+    "zoom.us": "communication",
+    "Zoom": "communication",
+
+    "Figma": "creative",
+    "Adobe Photoshop": "creative",
+    "Adobe Illustrator": "creative",
+    "Sketch": "creative",
+    "Blender": "creative",
+
+    "Notion": "admin",
+    "Microsoft Outlook": "admin",
+    "Outlook": "admin",
+    "Mail": "admin",
+    "Microsoft Excel": "admin",
+    "Linear": "admin",
+
+    "Google Chrome": "browser",
+    "Chrome": "browser",
+    "Firefox": "browser",
+    "Safari": "browser",
+    "Microsoft Edge": "browser",
+    "msedge": "browser",
+    "Arc": "browser"
+  }
+}
