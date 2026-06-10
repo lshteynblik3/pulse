@@ -1,8 +1,9 @@
 # CLAUDE.md
-CURRENT PHASE: Phase 4b (this branch) — agent pairing + scoped ingest.
-Built on main; phase-4a's auth plumbing is lifted byte-identically (see
-the lift commit), NOT merged. 4c (WorkSchedule settings), 4d (dashboard
-data API), 4e (dashboard UI) follow.
+CURRENT PHASE: Phase 4a, fix-categorization, and 4b all done on
+side branches, verified together on integration-check (now
+deleted). Nothing merged to main yet — held until Phase 4 fully
+closes. Next: 4c (WorkSchedule storage + settings UI), then 4d
+(dashboard data API), then 4e (dashboard UI).
 
 Context for working on **Pulse**. Read this at the start of every session.
 Full detail lives in `SPEC.md` — read it before any architectural work.
@@ -75,6 +76,23 @@ surveillance — that shapes the architecture.
 - Known issue (accepted, not solved in 4b): if a user pairs two devices, the
   daily_summaries upsert is last-write-wins per (user_id, date) — one machine's
   day overwrites the other's. Multi-device merging is a later phase.
+
+## Known issues / debt
+
+- Phase 4b Tests 8 and 9 were verified by code inspection
+  rather than end-to-end testing. Test 8 (consume race
+  condition): the consume endpoint uses a single
+  UPDATE … WHERE consumed_at IS NULL AND expires_at > now()
+  RETURNING statement, which is race-safe by Postgres row
+  locking on a single statement — only one of two concurrent
+  consumes can match. Test 9 (cross-user authorization): API
+  routes enforce user_id = auth.uid() in both application
+  logic (requireUser + WHERE user_id = $authed_user) and in
+  RLS policies. End-to-end verification of test 9 was blocked
+  by Supabase free-tier email rate limits during testing
+  (3/hour magic links per email, hit during second-user
+  signup attempts); re-verify with a fresh email allowance
+  when convenient.
 
 ## Current phase
 
