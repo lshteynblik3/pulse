@@ -23,6 +23,14 @@
       .never li { color: #b00020; }
       .toggle { margin-top: 18px; display: flex; align-items: center; gap: 8px; }
       .hint { color: #999; font-size: 11px; margin-top: 6px; }
+      .banner { background: #fff4e5; border: 1px solid #f0c36d; border-radius: 4px; padding: 8px 10px; margin-bottom: 8px; }
+      .pair-row { display: flex; gap: 6px; margin-top: 8px; }
+      .pair-row input { flex: 1; min-width: 0; font-size: 13px; padding: 4px 6px; }
+      #pair-code { font-family: ui-monospace, monospace; letter-spacing: 0.12em; text-transform: uppercase; }
+      button { font-size: 12px; padding: 4px 10px; }
+      .pair-ok { color: #1b7e3c; }
+      .pair-error { color: #b00020; }
+      .linkish { background: none; border: none; color: #555; text-decoration: underline; cursor: pointer; padding: 0; font-size: 11px; }
     </style>
   </head>
   <body>
@@ -37,6 +45,28 @@
     </div>
     <div class="hint" id="paused-hint" style="display: none">
       Tracking is paused. Nothing is being captured.
+    </div>
+
+    <h2>Device pairing</h2>
+    <div id="pair-paired" style="display: none">
+      Paired as <strong id="pair-label"></strong>
+      <span class="hint">— summaries are being sent to your account.</span>
+      <div><button class="linkish" id="unpair-btn">Unpair this device (local only)</button></div>
+    </div>
+    <div id="pair-unpaired" style="display: none">
+      <div class="banner">
+        <strong>Not paired</strong> — sign in on the web and pair this device.
+        Tracking still runs locally; nothing is sent until you pair.
+      </div>
+      <button id="open-pairing-page">Open the pairing page</button>
+      <div class="pair-row">
+        <input id="pair-code" maxlength="8" placeholder="I have a code" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="pair-row">
+        <input id="pair-device-label" placeholder="Device name" autocomplete="off" />
+        <button id="pair-btn">Pair</button>
+      </div>
+      <div class="hint" id="pair-result"></div>
     </div>
 
     <h2>What Pulse collects</h2>
