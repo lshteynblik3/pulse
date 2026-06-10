@@ -6,21 +6,29 @@ import {
   nativeImage,
   ipcMain,
   powerMonitor,
+  safeStorage,
+  shell,
 } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import type { Category } from '@pulse/shared';
 import { DayAggregator } from './aggregator.js';
 import { loadCategoryConfig, type CategoryConfig } from './config.js';
+import { DeviceAuthStore, normalizePairingCode, type PairState } from './device-auth.js';
 import { localDateString } from './time.js';
 
 // ---------------------------------------------------------------------------
 // Config — easy to find at the top.
 // ---------------------------------------------------------------------------
 
-/** The ONLY thing the agent sends: a DailySummary, every flush. */
-const INGEST_URL = 'http://localhost:3000/api/ingest';
+/**
+ * The server this agent PAIRS against. Once paired, all traffic goes to the
+ * serverUrl recorded in device.json at pair time — so editing this constant
+ * later can never leak an existing token to a different host.
+ */
+const SERVER_URL = 'http://localhost:3000';
 
 /** How often we sample the focused app + idle state. */
 const POLL_INTERVAL_MS = 5_000;
@@ -46,6 +54,9 @@ let flushTimer: ReturnType<typeof setInterval> | null = null;
 let config: CategoryConfig;
 let aggregator: DayAggregator;
 let deviceId: string;
+let deviceAuth: DeviceAuthStore;
+/** One log line per unpaired stretch, not one per skipped 15-min flush. */
+let unpairedSkipLogged = false;
 
 /** "Mark private": when true, the agent captures nothing at all. */
 let paused = false;
@@ -170,14 +181,39 @@ async function poll(): Promise<void> {
 
 // (3) Every flush is a full upsert of the current DailySummary. No deltas, no
 // "skip if unchanged" — re-sending the same cumulative summary is idempotent.
+//
+// Phase 4b: flushes carry the device bearer token. Not paired = tracking
+// continues locally but nothing is sent. summary.userId still holds the old
+// device UUID purely to satisfy the contract shape — the server derives the
+// real user from the token and discards the body's value.
 async function flushSummary(): Promise<void> {
+  const token = deviceAuth.token;
+  if (!token) {
+    if (!unpairedSkipLogged) {
+      console.log('Not paired — tracking locally, flushes are on hold until this device is paired.');
+      unpairedSkipLogged = true;
+    }
+    return;
+  }
+  unpairedSkipLogged = false;
+
   const summary = aggregator.buildSummary(deviceId, AGENT_VERSION);
+  const serverUrl = deviceAuth.metadata?.serverUrl ?? SERVER_URL;
   try {
-    const res = await fetch(INGEST_URL, {
+    const res = await fetch(`${serverUrl}/api/ingest`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(summary),
     });
+    if (res.status === 401) {
+      // The server definitively rejected the credential (revoked or deleted).
+      // Wipe it and surface the not-paired banner — do NOT retry forever.
+      // Only this exact status wipes; network errors and 5xx keep the token.
+      console.error('Device token rejected by the server — unpairing locally. Re-pair from the web app.');
+      deviceAuth.wipe();
+      pushPairState();
+      return;
+    }
     if (!res.ok) throw new Error(`ingest responded ${res.status}`);
     console.log(
       `Flushed ${summary.date}: active ${summary.activeMinutes}m, focus ${summary.focusMinutes}m, blocks ${summary.focusBlockCount}`,
@@ -186,6 +222,80 @@ async function flushSummary(): Promise<void> {
     // Keep the in-memory totals; the next 15-min flush resends the full summary.
     console.error('Flush failed (will retry next interval):', err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Device pairing (Phase 4b).
+//
+// The agent trades a short-lived code (issued on the user's authenticated
+// /settings/devices page) for a long-lived bearer token via the public
+// pair/consume endpoint. The token is held in memory and persisted only as a
+// safeStorage-encrypted blob — see device-auth.ts.
+// ---------------------------------------------------------------------------
+
+type PairStateForPanel = PairState & { defaultLabel: string };
+
+function pairStateForPanel(): PairStateForPanel {
+  return { ...deviceAuth.getPairState(), defaultLabel: os.hostname() };
+}
+
+function pushPairState(): void {
+  win?.webContents.send('pair-state', pairStateForPanel());
+}
+
+type PairResult = { ok: true } | { ok: false; error: string };
+
+async function pairWithCode(rawCode: unknown, rawLabel: unknown): Promise<PairResult> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    // Rare (e.g. Linux without libsecret). A plaintext token on disk is worse
+    // than no pairing, so refuse outright rather than fall back.
+    console.error(
+      'safeStorage reports OS-level encryption is UNAVAILABLE — refusing to pair. ' +
+        'The device token cannot be stored safely on this machine.',
+    );
+    return { ok: false, error: 'This machine cannot store the token securely (OS encryption unavailable).' };
+  }
+
+  const code = normalizePairingCode(typeof rawCode === 'string' ? rawCode : '');
+  const label = (typeof rawLabel === 'string' ? rawLabel : '').trim() || os.hostname();
+  if (code.length === 0) return { ok: false, error: 'Enter the pairing code from the web app.' };
+
+  let res: Response;
+  try {
+    res = await fetch(`${SERVER_URL}/api/devices/pair/consume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, deviceLabel: label }),
+    });
+  } catch {
+    return { ok: false, error: `Could not reach the server at ${SERVER_URL}. Is it running?` };
+  }
+
+  if (res.status === 400) return { ok: false, error: 'Invalid or expired code.' };
+  if (!res.ok) return { ok: false, error: `Pairing failed (server responded ${res.status}).` };
+
+  let payload: { token?: unknown; deviceLabel?: unknown; userId?: unknown };
+  try {
+    payload = (await res.json()) as typeof payload;
+  } catch {
+    return { ok: false, error: 'Pairing failed (unreadable server response).' };
+  }
+  if (typeof payload.token !== 'string' || payload.token.length === 0 || typeof payload.userId !== 'string') {
+    return { ok: false, error: 'Pairing failed (malformed server response).' };
+  }
+
+  deviceAuth.store(payload.token, {
+    userId: payload.userId,
+    label: typeof payload.deviceLabel === 'string' && payload.deviceLabel.length > 0 ? payload.deviceLabel : label,
+    pairedAt: new Date().toISOString(),
+    serverUrl: SERVER_URL,
+  });
+  unpairedSkipLogged = false;
+  pushPairState();
+  console.log('Paired — flushes will resume on the next interval.');
+  // Send the day so far right away rather than waiting up to 15 minutes.
+  void flushSummary();
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +369,10 @@ function createWindow(): void {
     },
   });
   void win.loadFile(path.join(__dirname, '../src/renderer/index.html'));
-  win.webContents.on('did-finish-load', () => updateStatus());
+  win.webContents.on('did-finish-load', () => {
+    updateStatus();
+    pushPairState();
+  });
   win.on('closed', () => {
     win = null;
   });
@@ -288,6 +401,17 @@ void app.whenReady().then(() => {
   deviceId = loadOrCreateDeviceId();
   aggregator = new DayAggregator(localDateString(new Date()));
 
+  // safeStorage is only usable after whenReady — construct and restore here.
+  // A restored token is presumed valid until a flush 401 says otherwise.
+  deviceAuth = new DeviceAuthStore(app.getPath('userData'), {
+    isAvailable: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (plain) => safeStorage.encryptString(plain),
+    decrypt: (blob) => safeStorage.decryptString(blob),
+  });
+  deviceAuth.load();
+  const pairState = deviceAuth.getPairState();
+  console.log(pairState.paired ? `Paired as "${pairState.label}".` : 'Not paired.');
+
   createTray();
   createWindow();
 
@@ -297,6 +421,24 @@ void app.whenReady().then(() => {
     return paused;
   });
   ipcMain.handle('get-status', () => ({ paused, app: statusLabel() }));
+
+  // IPC: device pairing (Phase 4b). The token itself never crosses this
+  // boundary — the renderer only ever sees PairState.
+  ipcMain.handle('device-pair-with-code', (_e, code: unknown, label: unknown) =>
+    pairWithCode(code, label),
+  );
+  ipcMain.handle('device-get-pair-state', () => pairStateForPanel());
+  ipcMain.handle('device-unpair-local', () => {
+    // Local-only: forgets the credential on this machine. Revoking the token
+    // server-side is done from /settings/devices.
+    deviceAuth.wipe();
+    pushPairState();
+    return pairStateForPanel();
+  });
+  ipcMain.handle('device-open-pairing-page', () => {
+    const serverUrl = deviceAuth.metadata?.serverUrl ?? SERVER_URL;
+    void shell.openExternal(`${serverUrl}/settings/devices`);
+  });
 
   // (1) Sleep/wake + lock/unlock: close any open focus run and avoid forming a
   // slice across the gap. Idle detection already treats a locked screen as idle;

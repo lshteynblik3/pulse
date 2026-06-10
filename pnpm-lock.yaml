@@ -27,6 +27,9 @@ importers:
       electron:
         specifier: ^33.0.0
         version: 33.4.11
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.19.20)
 
   packages/shared: {}
 
