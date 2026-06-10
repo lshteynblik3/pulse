@@ -25,6 +25,8 @@ export interface TokenCrypto {
 
 /** Non-secret pairing metadata, persisted as plain JSON. */
 export interface DeviceMetadata {
+  /** This device's own device_tokens row id (from the consume response). */
+  deviceId: string;
   /** The account this device is bound to (from the consume response). */
   userId: string;
   label: string;
@@ -47,6 +49,8 @@ function isDeviceMetadata(value: unknown): value is DeviceMetadata {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Partial<DeviceMetadata>;
   return (
+    typeof v.deviceId === 'string' &&
+    v.deviceId.length > 0 &&
     typeof v.userId === 'string' &&
     v.userId.length > 0 &&
     typeof v.label === 'string' &&

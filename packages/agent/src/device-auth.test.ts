@@ -21,6 +21,7 @@ function fakeCrypto(available = true): TokenCrypto {
 }
 
 const META = {
+  deviceId: '3b8a2f10-94d7-4d2e-8c61-5f0e9a7b1c22',
   userId: 'ef0a81f3-cc51-4642-9890-c28daa61fc8a',
   label: 'Work laptop',
   pairedAt: '2026-06-10T12:00:00.000Z',

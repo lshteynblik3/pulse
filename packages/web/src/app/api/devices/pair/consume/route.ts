@@ -114,11 +114,13 @@ export async function POST(request: Request) {
   const userId = claimedRow.user_id as string;
 
   const token = generateDeviceToken();
-  const { error: insertError } = await admin
+  const { data: inserted, error: insertError } = await admin
     .from('device_tokens')
-    .insert({ user_id: userId, token_hash: hashDeviceToken(token), device_label: deviceLabel });
+    .insert({ user_id: userId, token_hash: hashDeviceToken(token), device_label: deviceLabel })
+    .select('id')
+    .single();
 
-  if (insertError) {
+  if (insertError || !inserted) {
     // The code was already claimed above, so it's burned with no token issued.
     // That's the accepted tradeoff for keeping consume to two plain statements —
     // the failure is harmless and self-evident: the user issues a fresh code.
@@ -128,5 +130,10 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json({ token, deviceLabel, userId }, { status: 200 });
+  // deviceId is this device's own device_tokens row id — not sensitive, and the
+  // natural handle if the agent ever needs to ask the server about itself later.
+  return NextResponse.json(
+    { token, deviceId: inserted.id as string, userId, deviceLabel },
+    { status: 200 },
+  );
 }

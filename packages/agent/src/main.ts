@@ -274,17 +274,24 @@ async function pairWithCode(rawCode: unknown, rawLabel: unknown): Promise<PairRe
   if (res.status === 400) return { ok: false, error: 'Invalid or expired code.' };
   if (!res.ok) return { ok: false, error: `Pairing failed (server responded ${res.status}).` };
 
-  let payload: { token?: unknown; deviceLabel?: unknown; userId?: unknown };
+  let payload: { token?: unknown; deviceId?: unknown; userId?: unknown; deviceLabel?: unknown };
   try {
     payload = (await res.json()) as typeof payload;
   } catch {
     return { ok: false, error: 'Pairing failed (unreadable server response).' };
   }
-  if (typeof payload.token !== 'string' || payload.token.length === 0 || typeof payload.userId !== 'string') {
+  if (
+    typeof payload.token !== 'string' ||
+    payload.token.length === 0 ||
+    typeof payload.deviceId !== 'string' ||
+    payload.deviceId.length === 0 ||
+    typeof payload.userId !== 'string'
+  ) {
     return { ok: false, error: 'Pairing failed (malformed server response).' };
   }
 
   deviceAuth.store(payload.token, {
+    deviceId: payload.deviceId,
     userId: payload.userId,
     label: typeof payload.deviceLabel === 'string' && payload.deviceLabel.length > 0 ? payload.deviceLabel : label,
     pairedAt: new Date().toISOString(),
