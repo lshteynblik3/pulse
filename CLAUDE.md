@@ -1,5 +1,8 @@
 # CLAUDE.md
-CURRENT PHASE: Phase 3 done. Beginning Phase 4 — employee dashboard + auth.
+CURRENT PHASE: Phase 4b (this branch) — agent pairing + scoped ingest.
+Built on main; phase-4a's auth plumbing is lifted byte-identically (see
+the lift commit), NOT merged. 4c (WorkSchedule settings), 4d (dashboard
+data API), 4e (dashboard UI) follow.
 
 Context for working on **Pulse**. Read this at the start of every session.
 Full detail lives in `SPEC.md` — read it before any architectural work.
@@ -54,6 +57,24 @@ surveillance — that shapes the architecture.
 - Small commits, one phase per branch. Explain non-obvious tradeoffs in the PR description.
 - This user is solo and semi-technical: prefer clear, conventional code over clever
   abstractions. When you make a meaningful choice, say why in one sentence.
+
+### Pairing (Phase 4b)
+
+- Agent identity comes from the bearer token's `device_tokens` row, never from the
+  request body. `/api/ingest` must overwrite `summary.userId` with the authenticated
+  user_id before upsert.
+- `/api/ingest` accepts any `date` the agent claims — no "is it today" check, ever.
+  The recovery-flush path legitimately sends prior-day summaries.
+- The plaintext device token exists in exactly three places: the one-time
+  pair/consume response, the agent's process memory, and the agent's
+  safeStorage-encrypted `device-token.bin`. Never in a DB row, log line, or any
+  other response. Pairing-code values are never logged either, even on failures.
+- Service-role Supabase usage is limited to two documented sites: the pair/consume
+  claim+insert, and the ingest token lookup. Everything else runs on the user's
+  session client under RLS.
+- Known issue (accepted, not solved in 4b): if a user pairs two devices, the
+  daily_summaries upsert is last-write-wins per (user_id, date) — one machine's
+  day overwrites the other's. Multi-device merging is a later phase.
 
 ## Current phase
 
