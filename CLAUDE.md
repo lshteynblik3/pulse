@@ -1,9 +1,10 @@
 # CLAUDE.md
-CURRENT PHASE: Phase 4a, fix-categorization, and 4b all done on
-side branches, verified together on integration-check (now
-deleted). Nothing merged to main yet — held until Phase 4 fully
-closes. Next: 4c (WorkSchedule storage + settings UI), then 4d
-(dashboard data API), then 4e (dashboard UI).
+CURRENT PHASE: Phase 4a, fix-categorization, 4b, and 4c all done
+on side branches (integration-check, used to verify the first
+three together, is deleted; its tip with the settled merge
+resolutions is preserved as tag archive/integration-check).
+Nothing merged to main yet — held until Phase 4 fully closes.
+Next: 4d (dashboard data API), then 4e (dashboard UI).
 
 Context for working on **Pulse**. Read this at the start of every session.
 Full detail lives in `SPEC.md` — read it before any architectural work.
@@ -56,6 +57,18 @@ surveillance — that shapes the architecture.
 - Validate every API input with zod before touching the database.
 - Secrets in env vars, never committed. Encrypt integration tokens at rest.
 - Small commits, one phase per branch. Explain non-obvious tradeoffs in the PR description.
+- **`shared` uses `moduleResolution: node16`** — relative imports there need explicit
+  `.js` extensions — **and Next needs `resolve.extensionAlias` in `next.config.mjs`
+  for any VALUE import of shared** (type-only imports are erased and never hit
+  webpack). The alias landed in 4c. Note for 4d: `web/lib/scoring`'s existing
+  `DEFAULT_SCHEDULE` value imports are currently unreachable from app code, so they
+  only start exercising this once a route/page imports scoring — the fix is already
+  in place for that.
+- `WorkSchedule` gained an optional `breaks` field in Phase 4c (a scoring type in
+  `shared`, NOT the DailySummary spine; the agent never sends it). Scoring does not
+  consume `breaks` yet — 4c persists them for a later phase. No `work_schedules` row
+  means "use `DEFAULT_SCHEDULE`"; UI and scoring share that one constant via
+  `getWorkSchedule`.
 - This user is solo and semi-technical: prefer clear, conventional code over clever
   abstractions. When you make a meaningful choice, say why in one sentence.
 
