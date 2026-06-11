@@ -37,7 +37,7 @@ describe('workScheduleSchema — accepts', () => {
       ...valid,
       breaks: [{ start: '15:00', end: '15:15' }],
     });
-    expect(parsed.breaks[0].label).toBeUndefined();
+    expect(parsed.breaks[0]?.label).toBeUndefined();
   });
 
   it('boundary dailyHours of 24', () => {
@@ -65,7 +65,7 @@ describe('workScheduleSchema — rejects', () => {
     const result = workScheduleSchema.safeParse({ ...valid, workingDays: [] });
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.issues[0].message).toBe('Select at least one working day.');
+      expect(result.error.issues[0]?.message).toBe('Select at least one working day.');
     }
   });
 
