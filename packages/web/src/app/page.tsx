@@ -1,18 +1,19 @@
+/**
+ * Landing page. Deliberately spare until there's a real marketing page — but
+ * what it says about data handling must match the actual contract: the agent
+ * sends one aggregated daily summary, never raw activity.
+ */
 export default function Home() {
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24 }}>
+    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 560 }}>
       <h1>Pulse</h1>
-      <p>Phase 1 slice. API routes:</p>
-      <ul>
-        <li>
-          <code>POST /api/ingest</code> — accepts an ActivityEvent[] and stores raw events
-        </li>
-        <li>
-          <code>GET /api/summary/today</code> — total minutes per app for today
-        </li>
-      </ul>
+      <p style={{ color: '#555' }}>
+        Privacy-first productivity coaching. The Pulse agent measures your focus patterns
+        locally, on your machine, and shares only a once-a-day summary — never keystrokes,
+        screenshots, window titles, or browsing history.
+      </p>
       <p>
-        <a href="/dashboard">View today&apos;s dashboard →</a>
+        <a href="/dashboard">Open your dashboard →</a>
       </p>
     </main>
   );
