@@ -54,6 +54,16 @@ export function fetchWindowStart(today: string): string {
 }
 
 /**
+ * First date (inclusive) to fetch when scoring a SINGLE day (4h
+ * /api/agent/today): the day itself plus its full exclusive median lookback.
+ * Scoring one day needs 31 days, not FETCH_WINDOW_DAYS — that larger window
+ * exists to score 92 days, which that endpoint doesn't do.
+ */
+export function singleDayWindowStart(date: string): string {
+  return addDays(date, -MEDIAN_LOOKBACK_DAYS);
+}
+
+/**
  * What GET /api/dashboard returns. Web-internal (API ↔ dashboard page), NOT the
  * agent contract, so it lives here rather than in @pulse/shared.
  *
@@ -86,8 +96,12 @@ export interface DashboardPayload {
   };
 }
 
-/** Score one day against its own trailing-30-day median (exclusive of the day). */
-function scoreDay(
+/**
+ * Score one day against its own trailing-30-day median (exclusive of the day).
+ * Exported for /api/agent/today (4h), which scores exactly one day — the
+ * lookback filtering lives HERE so no caller can get the window wrong.
+ */
+export function scoreDay(
   summary: DailySummary,
   all: DailySummary[],
   schedule: WorkSchedule,
