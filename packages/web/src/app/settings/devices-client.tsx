@@ -1,21 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { relativeTimeLabel } from '@/lib/dashboard/format';
+import styles from './settings.module.css';
 
+// /api/devices returns ACTIVE devices only (4g): revoked rows stay in the
+// table as an audit trail but no longer clutter this list.
 type Device = {
   id: string;
   deviceLabel: string;
   lastUsedAt: string | null;
   createdAt: string;
-  revoked: boolean;
 };
 
 type IssuedCode = { code: string; expiresAt: string };
-
-function formatWhen(iso: string | null): string {
-  if (!iso) return 'never';
-  return new Date(iso).toLocaleString();
-}
 
 export default function DevicesClient() {
   const [devices, setDevices] = useState<Device[] | null>(null);
@@ -89,76 +87,68 @@ export default function DevicesClient() {
   }
 
   return (
-    <section>
-      <h2 style={{ fontSize: 16 }}>Pair a new device</h2>
+    <div>
+      <h3 className={styles.subTitle}>Pair a new device</h3>
       {issued ? (
-        <div style={{ border: '1px solid #ccc', borderRadius: 6, padding: 16, marginBottom: 8 }}>
-          <div
-            style={{
-              fontFamily: 'ui-monospace, monospace',
-              fontSize: 36,
-              letterSpacing: '0.18em',
-              fontWeight: 700,
-            }}
+        <div className={styles.pairCodeBox}>
+          <span className={styles.pairCode}>{issued.code}</span>
+          <button
+            className={styles.quietBtn}
+            style={{ marginLeft: 12, verticalAlign: 'middle' }}
+            onClick={() => void copyCode()}
           >
-            {issued.code}
-            <button
-              onClick={() => void copyCode()}
-              style={{ marginLeft: 12, fontSize: 14, padding: '4px 12px', cursor: 'pointer', verticalAlign: 'middle' }}
-            >
-              {copied ? 'Copied ✓' : 'Copy'}
-            </button>
-          </div>
-          <div style={{ color: '#555', marginTop: 8 }}>
+            {copied ? 'Copied ✓' : 'Copy'}
+          </button>
+          <p className={styles.hint}>
             Expires in {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}.
             Paste this in your Pulse app&apos;s pairing screen.
-          </div>
+          </p>
         </div>
       ) : (
-        <button
-          onClick={() => void issueCode()}
-          disabled={issuing}
-          style={{ padding: '8px 16px', fontSize: 16, cursor: 'pointer' }}
-        >
+        <button className={styles.primaryBtn} onClick={() => void issueCode()} disabled={issuing}>
           {issuing ? 'Issuing…' : 'Pair a new device'}
         </button>
       )}
 
-      <h2 style={{ fontSize: 16, marginTop: 28 }}>Your devices</h2>
+      <h3 className={styles.subTitle}>Your devices</h3>
       {devices === null ? (
-        <p style={{ color: '#555' }}>Loading…</p>
+        <p className={styles.muted}>Loading…</p>
       ) : devices.length === 0 ? (
-        <p style={{ color: '#555' }}>No devices paired yet.</p>
+        <p className={styles.muted}>No devices paired yet.</p>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <table className={styles.deviceTable}>
           <thead>
-            <tr style={{ textAlign: 'left', color: '#666' }}>
-              <th style={{ padding: '6px 8px' }}>Device</th>
-              <th style={{ padding: '6px 8px' }}>Last used</th>
-              <th style={{ padding: '6px 8px' }} />
+            <tr>
+              <th>Device</th>
+              <th>Last posted</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {devices.map((d) => (
-              <tr key={d.id} style={{ borderTop: '1px solid #eee' }}>
-                <td style={{ padding: '6px 8px' }}>
-                  {d.deviceLabel}
-                  {d.revoked && <span style={{ color: '#b00020' }}> (revoked)</span>}
-                </td>
-                <td style={{ padding: '6px 8px', color: '#555' }}>{formatWhen(d.lastUsedAt)}</td>
-                <td style={{ padding: '6px 8px', textAlign: 'right' }}>
-                  {!d.revoked && (
-                    <button onClick={() => void revoke(d)} style={{ cursor: 'pointer' }}>
-                      Revoke
-                    </button>
+              <tr key={d.id}>
+                <td>{d.deviceLabel}</td>
+                <td className={styles.deviceMeta}>
+                  {d.lastUsedAt ? (
+                    // Hover shows the exact local time; the cell stays human.
+                    <span title={new Date(d.lastUsedAt).toLocaleString()}>
+                      {relativeTimeLabel(d.lastUsedAt)}
+                    </span>
+                  ) : (
+                    'never'
                   )}
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  <button className={styles.quietBtn} onClick={() => void revoke(d)}>
+                    Revoke
+                  </button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
-      {error && <p style={{ color: '#b00020' }}>{error}</p>}
-    </section>
+      {error && <p className={styles.errorNote}>{error}</p>}
+    </div>
   );
 }

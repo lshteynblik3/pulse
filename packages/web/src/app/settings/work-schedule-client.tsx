@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { WorkBreak, WorkSchedule } from '@pulse/shared';
+import styles from './settings.module.css';
 
 type ScheduleResponse = { schedule: WorkSchedule; isDefault: boolean };
 
@@ -131,41 +132,21 @@ export default function WorkScheduleClient() {
   }
 
   if (!loaded) {
-    return <p style={{ color: '#555' }}>{error ?? 'Loading…'}</p>;
+    return <p className={styles.muted}>{error ?? 'Loading…'}</p>;
   }
 
   return (
-    <section>
+    <div>
       {isDefault && (
-        <p
-          style={{
-            background: '#f4f1fc',
-            border: '1px solid #d9d0f5',
-            borderRadius: 6,
-            padding: '8px 12px',
-            color: '#444',
-          }}
-        >
+        <p className={styles.banner}>
           These are the defaults — you haven&apos;t set a schedule yet. Save to make it yours.
         </p>
       )}
 
-      <h2 style={{ fontSize: 16 }}>Working days</h2>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <h3 className={styles.subTitle}>Working days</h3>
+      <div className={styles.dayChips}>
         {DAY_ORDER.map((day) => (
-          <label
-            key={day}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              border: '1px solid #ccc',
-              borderRadius: 6,
-              padding: '6px 10px',
-              cursor: 'pointer',
-              background: workingDays.includes(day) ? '#efeafd' : '#fff',
-            }}
-          >
+          <label key={day} className={workingDays.includes(day) ? styles.dayChipOn : styles.dayChip}>
             <input
               type="checkbox"
               checked={workingDays.includes(day)}
@@ -176,42 +157,50 @@ export default function WorkScheduleClient() {
         ))}
       </div>
 
-      <h2 style={{ fontSize: 16, marginTop: 24 }}>Daily hours target</h2>
-      <input
-        type="number"
-        min={0.5}
-        max={24}
-        step={0.5}
-        value={dailyHours}
-        onChange={(e) => {
-          setDailyHours(e.target.value);
-          setSavedAt(null);
-        }}
-        style={{ width: 80, padding: 6, fontSize: 15 }}
-      />{' '}
-      hours per working day
-      <h2 style={{ fontSize: 16, marginTop: 24 }}>Vacation days</h2>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <h3 className={styles.subTitle}>Daily hours target</h3>
+      <div className={styles.inlineRow}>
+        <input
+          type="number"
+          min={0.5}
+          max={24}
+          step={0.5}
+          value={dailyHours}
+          onChange={(e) => {
+            setDailyHours(e.target.value);
+            setSavedAt(null);
+          }}
+          className={styles.smallInput}
+          style={{ width: 90 }}
+        />
+        <span>hours per working day</span>
+      </div>
+
+      <h3 className={styles.subTitle}>Vacation days</h3>
+      <div className={styles.inlineRow}>
         {/* type="date" emits a local YYYY-MM-DD string — exactly the civil-day
             format scoring expects, with no Date/UTC round-trip anywhere. */}
         <input
           type="date"
           value={newVacation}
           onChange={(e) => setNewVacation(e.target.value)}
-          style={{ padding: 6 }}
+          className={styles.smallInput}
         />
-        <button onClick={addVacation} disabled={!newVacation} style={{ padding: '6px 12px', cursor: 'pointer' }}>
+        <button className={styles.quietBtn} onClick={addVacation} disabled={!newVacation}>
           Add
         </button>
       </div>
       {vacationDates.length === 0 ? (
-        <p style={{ color: '#555' }}>No vacation days set.</p>
+        <p className={styles.hint}>No vacation days set.</p>
       ) : (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
+        <ul className={styles.plainList}>
           {vacationDates.map((date) => (
-            <li key={date} style={{ padding: '4px 0' }}>
+            <li key={date}>
               {date}{' '}
-              <button onClick={() => removeVacation(date)} style={{ marginLeft: 8, cursor: 'pointer' }}>
+              <button
+                className={styles.quietBtn}
+                style={{ marginLeft: 8 }}
+                onClick={() => removeVacation(date)}
+              >
                 Remove
               </button>
             </li>
@@ -219,39 +208,40 @@ export default function WorkScheduleClient() {
         </ul>
       )}
 
-      <h2 style={{ fontSize: 16, marginTop: 24 }}>Breaks</h2>
-      <p style={{ color: '#555', marginTop: 0 }}>
+      <h3 className={styles.subTitle}>Breaks</h3>
+      <p className={styles.muted}>
         Optional, e.g. lunch. Saved with your schedule; scoring doesn&apos;t use these yet.
       </p>
       {breaks.map((b, i) => (
-        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+        <div key={i} className={styles.breakRow}>
           <input
             type="text"
             placeholder="Label (optional)"
             value={b.label ?? ''}
             maxLength={60}
             onChange={(e) => updateBreak(i, { label: e.target.value })}
-            style={{ padding: 6, width: 140 }}
+            className={styles.smallInput}
+            style={{ width: 150 }}
           />
           <input
             type="time"
             value={b.start}
             onChange={(e) => updateBreak(i, { start: e.target.value })}
-            style={{ padding: 6 }}
+            className={styles.smallInput}
           />
           –
           <input
             type="time"
             value={b.end}
             onChange={(e) => updateBreak(i, { end: e.target.value })}
-            style={{ padding: 6 }}
+            className={styles.smallInput}
           />
           <button
+            className={styles.quietBtn}
             onClick={() => {
               setBreaks((all) => all.filter((_, j) => j !== i));
               setSavedAt(null);
             }}
-            style={{ cursor: 'pointer' }}
           >
             Remove
           </button>
@@ -259,27 +249,23 @@ export default function WorkScheduleClient() {
       ))}
       {breaks.length < 10 && (
         <button
+          className={styles.quietBtn}
           onClick={() => {
             setBreaks((all) => [...all, { start: '12:00', end: '12:30' }]);
             setSavedAt(null);
           }}
-          style={{ padding: '6px 12px', cursor: 'pointer' }}
         >
           Add a break
         </button>
       )}
 
-      <div style={{ marginTop: 28, display: 'flex', gap: 12, alignItems: 'center' }}>
-        <button
-          onClick={() => void save()}
-          disabled={saving}
-          style={{ padding: '8px 20px', fontSize: 16, cursor: 'pointer' }}
-        >
+      <div className={styles.saveRow}>
+        <button className={styles.primaryBtn} onClick={() => void save()} disabled={saving}>
           {saving ? 'Saving…' : 'Save schedule'}
         </button>
-        {savedAt !== null && <span style={{ color: '#1a7f37' }}>Saved ✓</span>}
+        {savedAt !== null && <span className={styles.savedNote}>Saved ✓</span>}
       </div>
-      {error && <p style={{ color: '#b00020' }}>{error}</p>}
-    </section>
+      {error && <p className={styles.errorNote}>{error}</p>}
+    </div>
   );
 }

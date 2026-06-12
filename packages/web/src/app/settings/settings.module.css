@@ -1,0 +1,345 @@
+/*
+ * /settings — the settings pages' move ONTO the 4e visual language (the
+ * CLAUDE.md-sanctioned migration: dashboard.module.css + Fraunces is the
+ * pattern, inline styles were the placeholder). Same "calm coach" direction:
+ * warm paper ground, one purple accent, serif display face for headings,
+ * generous spacing, no red anywhere — revoking a device is a quiet action,
+ * not an alarm.
+ */
+
+.page {
+  min-height: 100vh;
+  padding: 40px 24px 72px;
+  background:
+    radial-gradient(1100px 520px at 85% -10%, rgba(109, 79, 229, 0.07), transparent 60%),
+    #faf9f6;
+  color: #211f2a;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.shell {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Same staggered load reveal as the dashboard — one page, one rhythm. */
+.shell > * {
+  animation: rise 420ms ease both;
+}
+.shell > *:nth-child(2) { animation-delay: 50ms; }
+.shell > *:nth-child(3) { animation-delay: 100ms; }
+.shell > *:nth-child(4) { animation-delay: 150ms; }
+.shell > *:nth-child(5) { animation-delay: 200ms; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.kicker {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6d4fe5;
+}
+
+.heading {
+  margin: 2px 0 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.backLink {
+  color: #533bc4;
+  font-weight: 600;
+  font-size: 13.5px;
+  text-decoration: none;
+  padding-bottom: 6px;
+}
+.backLink:hover {
+  text-decoration: underline;
+}
+
+/* Quiet pill nav — same family as the dashboard's peak-hour chips. */
+.sectionNav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sectionNav a {
+  background: #efeafd;
+  border: 1px solid #ded3fa;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #3f2e99;
+  text-decoration: none;
+}
+.sectionNav a:hover {
+  background: #e3dafc;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e9e5dd;
+  border-radius: 14px;
+  padding: 22px 24px;
+  box-shadow: 0 1px 2px rgba(33, 31, 42, 0.04);
+  /* Anchor landings clear the viewport top comfortably. */
+  scroll-margin-top: 24px;
+}
+
+.sectionTitle {
+  margin: 0 0 4px;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.subTitle {
+  margin: 22px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6f6b7a;
+}
+
+.muted {
+  margin: 0 0 6px;
+  color: #6f6b7a;
+}
+
+.hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #9b97a6;
+}
+
+/* ---- Form primitives ---- */
+
+.fieldLabel {
+  display: block;
+  margin: 16px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6f6b7a;
+}
+
+.textInput {
+  width: 100%;
+  max-width: 340px;
+  padding: 8px 10px;
+  font-size: 15px;
+  font-family: inherit;
+  color: #211f2a;
+  background: #fff;
+  border: 1px solid #d8d4cb;
+  border-radius: 8px;
+}
+.textInput:focus {
+  outline: 2px solid rgba(109, 79, 229, 0.35);
+  outline-offset: 1px;
+  border-color: #6d4fe5;
+}
+.textInput:read-only {
+  background: #f5f3ee;
+  color: #6f6b7a;
+}
+
+.smallInput {
+  composes: textInput;
+  width: auto;
+  max-width: none;
+}
+
+.primaryBtn {
+  padding: 8px 18px;
+  border: 1px solid #6d4fe5;
+  border-radius: 8px;
+  background: #6d4fe5;
+  color: #fff;
+  font-size: 14.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.primaryBtn:hover {
+  background: #5b3fd0;
+}
+.primaryBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.quietBtn {
+  padding: 6px 14px;
+  border: 1px solid #d8d4cb;
+  border-radius: 8px;
+  background: #fff;
+  color: #211f2a;
+  font-size: 13.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.quietBtn:hover {
+  border-color: #6d4fe5;
+  background: #f7f4ff;
+}
+.quietBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.saveRow {
+  margin-top: 20px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.savedNote {
+  color: #1a7f37;
+  font-weight: 600;
+}
+
+/* Errors are information, not alarms — slate, never red (coach tone). */
+.errorNote {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.banner {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: #f4f1fc;
+  border: 1px solid #d9d0f5;
+  border-radius: 10px;
+  color: #444;
+}
+
+/* ---- Devices ---- */
+
+.pairCodeBox {
+  border: 1px solid #ded3fa;
+  background: #f7f4ff;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin: 8px 0;
+}
+
+.pairCode {
+  font-family: ui-monospace, 'Cascadia Mono', monospace;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: #3f2e99;
+}
+
+.deviceTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-top: 4px;
+}
+.deviceTable th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6f6b7a;
+}
+.deviceTable td {
+  padding: 8px;
+  border-top: 1px solid #f0ede6;
+}
+.deviceMeta {
+  color: #6f6b7a;
+}
+
+/* ---- Work schedule ---- */
+
+.dayChips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dayChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d8d4cb;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  background: #fff;
+  font-size: 13.5px;
+}
+.dayChipOn {
+  composes: dayChip;
+  background: #efeafd;
+  border-color: #ded3fa;
+  color: #3f2e99;
+  font-weight: 600;
+}
+
+.inlineRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.plainList {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+.plainList li {
+  padding: 4px 0;
+}
+
+.breakRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell > * {
+    animation: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .page {
+    padding: 24px 16px 56px;
+  }
+  .heading {
+    font-size: 28px;
+  }
+}
