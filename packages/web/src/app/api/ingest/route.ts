@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import type { DailySummary } from '@pulse/shared';
 import { getSupabaseAdmin } from '@/lib/supabase';
-import { hashDeviceToken } from '@/lib/devices/pairing';
+import { authenticateDevice } from '@/lib/devices/auth';
 
 // zod schema mirroring the DailySummary contract from @pulse/shared. This is now
 // the ONLY shape the server accepts — raw ActivityEvents never reach it
@@ -41,35 +41,8 @@ type _SchemaMatchesContract = z.infer<typeof dailySummarySchema> extends DailySu
 const _check: _SchemaMatchesContract = true;
 void _check;
 
-/**
- * Device-token auth (Phase 4b). The agent sends `Authorization: Bearer <token>`;
- * we look up sha256(token) in device_tokens. Service-role use #2 of 2 (see also
- * pair/consume): the lookup must bypass RLS because the agent has no Supabase
- * session — the token itself is the credential being verified.
- *
- * Returns the device row's user_id, or null for anything that isn't a valid,
- * unrevoked token. A revoked token fails from the next request onward — the
- * agent treats this exact 401 as "wipe local credentials and re-pair."
- */
-async function authenticateDevice(
-  request: Request,
-): Promise<{ userId: string; deviceTokenId: string } | null> {
-  const header = request.headers.get('authorization');
-  if (!header?.startsWith('Bearer ')) return null;
-  const token = header.slice('Bearer '.length).trim();
-  if (token.length === 0) return null;
-
-  const { data, error } = await getSupabaseAdmin()
-    .from('device_tokens')
-    .select('id, user_id')
-    .eq('token_hash', hashDeviceToken(token))
-    .is('revoked_at', null)
-    .maybeSingle();
-
-  if (error || !data) return null;
-  return { userId: data.user_id as string, deviceTokenId: data.id as string };
-}
-
+// Device-token auth (Phase 4b) lives in lib/devices/auth.ts — one shared
+// mechanism for every device-authenticated route (this one and /api/me).
 export async function POST(request: Request) {
   const device = await authenticateDevice(request);
   if (!device) {
