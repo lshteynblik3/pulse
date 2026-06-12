@@ -14,6 +14,7 @@ const categoryBreakdownSchema = z.object({
   creative: z.number().nonnegative(),
   admin: z.number().nonnegative(),
   browser: z.number().nonnegative(),
+  entertainment: z.number().nonnegative(),
   other: z.number().nonnegative(),
 });
 

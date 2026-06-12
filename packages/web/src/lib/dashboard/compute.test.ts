@@ -22,7 +22,7 @@ function makeSummary(date: string, overrides: Partial<DailySummary> = {}): Daily
     activeMinutes: 0,
     focusMinutes: 0,
     meetingMinutes: 0,
-    categoryBreakdown: { development: 0, communication: 0, creative: 0, admin: 0, browser: 0, other: 0 },
+    categoryBreakdown: { development: 0, communication: 0, creative: 0, admin: 0, browser: 0, entertainment: 0, other: 0 },
     focusBlockCount: 0,
     focusBlockMinutes: 0,
     hourlyFocusMinutes: new Array<number>(24).fill(0),

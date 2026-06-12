@@ -13,9 +13,11 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
-import type { Category } from '@pulse/shared';
+import type { Category, DailySummary } from '@pulse/shared';
 import { DayAggregator } from './aggregator.js';
-import { loadCategoryConfig, type CategoryConfig } from './config.js';
+import { loadCanonicalConfig, type CanonicalConfig } from './config.js';
+import { Classifier, isAssignableCategory } from './classifier.js';
+import { DayStore, type PersistedDay } from './day-store.js';
 import { DeviceAuthStore, normalizePairingCode, type PairState } from './device-auth.js';
 import { localDateString } from './time.js';
 
@@ -39,6 +41,15 @@ const FLUSH_INTERVAL_MS = 15 * 60 * 1000;
 /** No input for this many seconds = idle (SPEC: "no input > 3 min"). */
 const IDLE_THRESHOLD_SECONDS = 180;
 
+/**
+ * Startup flush guard: a CURRENT-day flush (scheduled or manual) is blocked
+ * until this much uptime has passed AND at least one non-idle observation has
+ * been recorded. A freshly-restarted agent therefore can't upsert a near-empty
+ * summary over the server's real row. Dated recovery/rollover sends skip this —
+ * they carry persisted data that is real by construction.
+ */
+const STARTUP_FLUSH_DELAY_MS = 60_000;
+
 /** Stamped into every DailySummary. */
 const AGENT_VERSION = '0.2.0';
 
@@ -51,12 +62,29 @@ let win: BrowserWindow | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 
-let config: CategoryConfig;
+let canonical: CanonicalConfig;
+let classifier: Classifier;
 let aggregator: DayAggregator;
+let dayStore: DayStore;
 let deviceId: string;
 let deviceAuth: DeviceAuthStore;
 /** One log line per unpaired stretch, not one per skipped 15-min flush. */
 let unpairedSkipLogged = false;
+
+/** Wall-clock ms when this agent process started — drives the startup flush guard. */
+let startedAtMs = 0;
+/** Non-idle slices recorded since this process started (NOT restored across restarts). */
+let observationsThisSession = 0;
+/** True while a recovery-pending retry is running, so retries never overlap. */
+let recoveryInFlight = false;
+
+/** Last classifier revision pushed to the renderer, so we only push on change. */
+let lastPushedClassifierRev = -1;
+
+/** True while a flush is in flight, so overlapping triggers are dropped. */
+let flushInFlight = false;
+/** Wall-clock ms of the last SUCCESSFUL flush, or null if none yet. */
+let lastFlushAt: number | null = null;
 
 /** "Mark private": when true, the agent captures nothing at all. */
 let paused = false;
@@ -110,18 +138,27 @@ function loadOrCreateDeviceId(): string {
   return id;
 }
 
-function loadConfigOrDefault(): CategoryConfig {
+function loadCanonicalOrDefault(): CanonicalConfig {
   const file = path.join(__dirname, '../config/categories.json');
   try {
-    return loadCategoryConfig(file);
+    return loadCanonicalConfig(file);
   } catch (err) {
-    console.error('Failed to load categories.json — every app will be "other":', err);
+    // With an empty canonical map, everything falls to heuristics then 'unknown'
+    // (neutral) — never silently to 'other'. A bad config can't tank the score.
+    console.error('Failed to load categories.json — relying on heuristics only:', err);
     return {
       productive: new Set<Category>(),
-      categorize: () => 'other',
+      lookup: () => undefined,
       isProductive: () => false,
     };
   }
+}
+
+/** Push classifier state to the renderer, but only when it actually changed. */
+function pushClassifierStateIfChanged(): void {
+  if (classifier.revision === lastPushedClassifierRev) return;
+  lastPushedClassifierRev = classifier.revision;
+  win?.webContents.send('classifier-state', classifier.getState());
 }
 
 // ---------------------------------------------------------------------------
@@ -132,11 +169,25 @@ async function poll(): Promise<void> {
   const now = Date.now();
   const today = localDateString(new Date(now));
 
-  // (2) Day rollover: flush the finished day, then start a fresh aggregator.
+  // (2) Day rollover: snapshot the finished day, reset for today FIRST (so a
+  // slow send can't race overlapping polls into the old day), then send the
+  // finished day directly via sendSummary — it carries real, dated data, so the
+  // startup flush guard doesn't apply. If the send fails, the day is parked as
+  // a recovery-pending file instead of being discarded.
   if (today !== aggregator.date) {
-    await flushSummary();
+    dayStore.cancelPendingSave(); // a pending debounced write is for the OLD day
+    const finished = aggregator.buildSummary(deviceId, AGENT_VERSION);
     aggregator = new DayAggregator(today);
+    classifier.resetDay();
     lastPollAt = null; // never form a slice spanning midnight
+    dayStore.saveNow(currentPersistedState()); // empty today replaces the old snapshot
+    const result = await sendSummary(finished);
+    if (!result.ok && finished.activeMinutes > 0) {
+      dayStore.writeRecoveryPending({ localDate: finished.date, summary: finished });
+      logRecovery(
+        `rollover flush for ${finished.date} failed (${result.error ?? 'unknown'}) — parked as recovery-pending`,
+      );
+    }
   }
 
   // (4) Paused = "mark private": capture nothing, close any open focus run.
@@ -170,36 +221,118 @@ async function poll(): Promise<void> {
     // (1) Clamp slice duration to the poll interval so a sleep/wake gap can't
     // produce a multi-hour slice.
     const durationMs = Math.min(now - lastPollAt, POLL_INTERVAL_MS);
-    const category: Category = idle ? 'other' : config.categorize(appName);
-    aggregator.addSlice({ startMs: now - durationMs, endMs: now, category, idle }, config);
+
+    if (idle) {
+      // Idle slices are excluded from everything; category/source are ignored.
+      aggregator.addSlice(
+        { startMs: now - durationMs, endMs: now, category: 'other', source: 'canonical', idle: true },
+        canonical,
+      );
+    } else {
+      const classification = classifier.classify(appName);
+      aggregator.addSlice(
+        {
+          startMs: now - durationMs,
+          endMs: now,
+          category: classification.category,
+          source: classification.source,
+          idle: false,
+        },
+        canonical,
+      );
+      // Record the observation (seen registry + unknown tracking). minutesToday
+      // and the unknown-apps file both come from this.
+      classifier.recordObservation(classification, appName, durationMs / 60000);
+      observationsThisSession += 1;
+    }
+    // Persist the day shortly after every state change (idle slices can bank a
+    // focus block, so they count as a change too).
+    dayStore.scheduleSave(currentPersistedState);
   }
 
   lastPollAt = now;
   if (!idle) currentApp = appName;
   updateStatus(idle ? '(idle)' : appName);
+  pushClassifierStateIfChanged();
 }
 
-// (3) Every flush is a full upsert of the current DailySummary. No deltas, no
-// "skip if unchanged" — re-sending the same cumulative summary is idempotent.
-//
-// Phase 4b: flushes carry the device bearer token. Not paired = tracking
-// continues locally but nothing is sent. summary.userId still holds the old
-// device UUID purely to satisfy the contract shape — the server derives the
-// real user from the token and discards the body's value.
-async function flushSummary(): Promise<void> {
-  const token = deviceAuth.token;
-  if (!token) {
-    if (!unpairedSkipLogged) {
-      console.log('Not paired — tracking locally, flushes are on hold until this device is paired.');
-      unpairedSkipLogged = true;
-    }
-    return;
-  }
-  unpairedSkipLogged = false;
+/**
+ * Outcome of a flush attempt, returned so callers can surface success/failure.
+ * `notReady: true` means the startup flush guard blocked it (not a failure);
+ * `error` then carries the human-readable reason for the panel.
+ */
+type FlushResult = { ok: boolean; at: number; error?: string; notReady?: boolean };
 
-  const summary = aggregator.buildSummary(deviceId, AGENT_VERSION);
-  const serverUrl = deviceAuth.metadata?.serverUrl ?? SERVER_URL;
+/** The current day's state in its persisted shape (read fresh at call time). */
+function currentPersistedState(): PersistedDay {
+  return {
+    localDate: aggregator.date,
+    summary: aggregator.buildSummary(deviceId, AGENT_VERSION),
+    // Panel state rides along in the same snapshot so per-app minutes and the
+    // last-flush time survive a restart. Local-only; never sent to the server.
+    seenApps: classifier.getSeenSnapshot(),
+    lastFlushAt,
+  };
+}
+
+/** Append one line to userData/recovery-log.txt (best-effort, local-only). */
+function logRecovery(line: string): void {
+  console.log(`recovery: ${line}`);
   try {
+    fs.appendFileSync(
+      path.join(app.getPath('userData'), 'recovery-log.txt'),
+      `${new Date().toISOString()} ${line}\n`,
+    );
+  } catch {
+    // logging must never break the agent
+  }
+}
+
+// (3) Every send is a full upsert of a DailySummary. No deltas, no "skip if
+// unchanged" — within a day the agent's state only grows, so re-sending is
+// idempotent and a re-send can only add, never clobber. This is the ONE POST
+// implementation; the live flush, day rollover, recovery flush, and quit flush
+// all go through it. The in-flight guard drops overlapping triggers.
+//
+// Phase 4b: every send carries the device bearer token, and dated recovery
+// sends go through here too — so they authenticate exactly like live flushes.
+// summary.userId still holds the old device UUID purely to satisfy the
+// contract shape; the server derives the real user from the token.
+async function sendSummary(summary: DailySummary): Promise<FlushResult> {
+  if (flushInFlight) {
+    return { ok: false, at: Date.now(), error: 'A flush is already in progress.' };
+  }
+  flushInFlight = true;
+  try {
+    // Sanity check (C): an all-zero summary from a session that has observed
+    // nothing is the restart-wipe signature, not real data. Never POST it.
+    if (summary.activeMinutes === 0 && observationsThisSession === 0) {
+      console.warn(
+        `Refusing to send all-zero summary for ${summary.date}: no observations this session.`,
+      );
+      return { ok: false, at: Date.now(), error: 'Nothing to send yet (no activity observed).' };
+    }
+
+    // Not paired = nothing leaves the machine. Today keeps accumulating in
+    // current-day.json and past days stay parked as recovery-pending files,
+    // so pairing later drains everything. notReady — this isn't a failure.
+    const token = deviceAuth.token;
+    if (!token) {
+      if (!unpairedSkipLogged) {
+        console.log('Not paired — tracking locally; sends are on hold until this device is paired.');
+        unpairedSkipLogged = true;
+      }
+      return {
+        ok: false,
+        at: Date.now(),
+        error: 'Not paired — pair this device to send summaries.',
+        notReady: true,
+      };
+    }
+    unpairedSkipLogged = false;
+
+    // The token is only ever sent to the server it was paired against.
+    const serverUrl = deviceAuth.metadata?.serverUrl ?? SERVER_URL;
     const res = await fetch(`${serverUrl}/api/ingest`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -212,16 +345,121 @@ async function flushSummary(): Promise<void> {
       console.error('Device token rejected by the server — unpairing locally. Re-pair from the web app.');
       deviceAuth.wipe();
       pushPairState();
-      return;
+      return {
+        ok: false,
+        at: Date.now(),
+        error: 'Device token rejected — re-pair this device from the web app.',
+      };
     }
     if (!res.ok) throw new Error(`ingest responded ${res.status}`);
     console.log(
       `Flushed ${summary.date}: active ${summary.activeMinutes}m, focus ${summary.focusMinutes}m, blocks ${summary.focusBlockCount}`,
     );
+    lastFlushAt = Date.now();
+    dayStore.scheduleSave(currentPersistedState); // lastFlushAt is part of the snapshot
+    return { ok: true, at: lastFlushAt };
   } catch (err) {
-    // Keep the in-memory totals; the next 15-min flush resends the full summary.
-    console.error('Flush failed (will retry next interval):', err);
+    // The caller keeps its data; the next attempt resends the full summary.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('Flush failed (will retry):', err);
+    return { ok: false, at: Date.now(), error: message };
+  } finally {
+    flushInFlight = false;
+    notifyFlushState();
   }
+}
+
+/** Startup flush guard (B): is a CURRENT-day flush allowed yet? */
+function flushReadiness(): { ready: boolean; message?: string } {
+  const elapsed = Date.now() - startedAtMs;
+  if (elapsed < STARTUP_FLUSH_DELAY_MS) {
+    const remaining = Math.ceil((STARTUP_FLUSH_DELAY_MS - elapsed) / 1000);
+    return { ready: false, message: `Flush available in ${remaining}s` };
+  }
+  if (observationsThisSession === 0) {
+    return { ready: false, message: 'Waiting for first activity before flushing.' };
+  }
+  return { ready: true };
+}
+
+// The current-day live flush: readiness guard, then send today's summary. The
+// scheduled timer and the manual trigger both go through this. A success also
+// retries one parked recovery-pending day, so a recovering server drains the
+// backlog without any extra machinery.
+async function flushSummary(): Promise<FlushResult> {
+  const readiness = flushReadiness();
+  if (!readiness.ready) {
+    return { ok: false, at: Date.now(), error: readiness.message, notReady: true };
+  }
+  const result = await sendSummary(aggregator.buildSummary(deviceId, AGENT_VERSION));
+  if (result.ok) void retryOneRecoveryPending();
+  return result;
+}
+
+/**
+ * Try to send the OLDEST recovery-pending day. Returns true if the queue moved
+ * (sent, or removed as empty/corrupt) — i.e. it's worth trying the next file.
+ * One file per send attempt; never overlaps itself.
+ */
+async function retryOneRecoveryPending(): Promise<boolean> {
+  if (recoveryInFlight) return false;
+  recoveryInFlight = true;
+  try {
+    const [file] = dayStore.listRecoveryPending();
+    if (!file) return false;
+    const data = dayStore.readRecoveryPending(file);
+    if (!data) {
+      dayStore.quarantineRecoveryPending(file);
+      logRecovery(`pending file ${path.basename(file)} was corrupt — quarantined`);
+      return true;
+    }
+    if (data.summary.activeMinutes === 0) {
+      dayStore.removeRecoveryPending(file);
+      logRecovery(`pending file ${path.basename(file)} had no activity — removed without sending`);
+      return true;
+    }
+    const result = await sendSummary(data.summary);
+    logRecovery(
+      `recovery flush for ${data.localDate}: ${result.ok ? 'ok' : `failed (${result.error ?? 'unknown'})`}`,
+    );
+    if (result.ok) {
+      dayStore.removeRecoveryPending(file);
+      return true;
+    }
+    return false;
+  } finally {
+    recoveryInFlight = false;
+  }
+}
+
+/** Drain the recovery queue oldest-first, stopping at the first failure. */
+async function retryAllRecoveryPending(): Promise<void> {
+  while (await retryOneRecoveryPending()) {
+    // each successful iteration removed one file; keep going until empty or stuck
+  }
+}
+
+// Manual flush trigger (tray "Flush now" + the 'flush-now' IPC). Runs the exact
+// same flush, then resets the schedule so the NEXT automatic flush is a full
+// interval away from this one — avoids a manual flush being chased by a
+// scheduled one seconds later.
+async function flushNow(): Promise<FlushResult> {
+  const result = await flushSummary();
+  armFlushTimer();
+  return result;
+}
+
+// (Re)arm the scheduled flush timer. Clearing and recreating it restarts the
+// 15-minute countdown; used at startup and after every manual flush. The
+// interval default itself is never changed.
+function armFlushTimer(): void {
+  if (flushTimer) clearInterval(flushTimer);
+  flushTimer = setInterval(() => void flushSummary(), FLUSH_INTERVAL_MS);
+}
+
+// Push the last-flush timestamp to the panel so "Last flushed: …" stays current.
+function notifyFlushState(): void {
+  win?.webContents.send('flush-state', { lastFlushAt });
 }
 
 // ---------------------------------------------------------------------------
@@ -300,8 +538,10 @@ async function pairWithCode(rawCode: unknown, rawLabel: unknown): Promise<PairRe
   unpairedSkipLogged = false;
   pushPairState();
   console.log('Paired — flushes will resume on the next interval.');
-  // Send the day so far right away rather than waiting up to 15 minutes.
-  void flushSummary();
+  // Send the day so far right away rather than waiting up to 15 minutes (the
+  // startup guard may still defer it), and drain any days that were parked
+  // while unpaired — dated recovery sends skip the startup guard by design.
+  void flushSummary().finally(() => void retryAllRecoveryPending());
   return { ok: true };
 }
 
@@ -311,7 +551,10 @@ async function pairWithCode(rawCode: unknown, rawLabel: unknown): Promise<PairRe
 
 function setPaused(value: boolean): void {
   paused = value;
-  if (paused) aggregator.interrupt();
+  if (paused) {
+    aggregator.interrupt();
+    dayStore.scheduleSave(currentPersistedState); // interrupt may bank a focus block
+  }
   lastPollAt = null;
   rebuildTrayMenu();
   updateStatus();
@@ -358,6 +601,8 @@ function rebuildTrayMenu(): void {
       },
       { label: 'Show Pulse', click: showWindow },
       { type: 'separator' },
+      { label: 'Flush now', click: () => void flushNow() },
+      { type: 'separator' },
       { label: 'Quit', click: () => app.quit() },
     ]),
   );
@@ -378,6 +623,9 @@ function createWindow(): void {
   void win.loadFile(path.join(__dirname, '../src/renderer/index.html'));
   win.webContents.on('did-finish-load', () => {
     updateStatus();
+    lastPushedClassifierRev = -1; // force a push to the freshly-loaded page
+    pushClassifierStateIfChanged();
+    notifyFlushState();
     pushPairState();
   });
   win.on('closed', () => {
@@ -404,11 +652,18 @@ function createTray(): void {
 // ---------------------------------------------------------------------------
 
 void app.whenReady().then(() => {
-  config = loadConfigOrDefault();
+  startedAtMs = Date.now();
+  canonical = loadCanonicalOrDefault();
   deviceId = loadOrCreateDeviceId();
-  aggregator = new DayAggregator(localDateString(new Date()));
+  classifier = new Classifier({
+    canonical,
+    overridesPath: path.join(app.getPath('userData'), 'user-overrides.json'),
+    unknownPath: path.join(app.getPath('userData'), 'unknown-apps.json'),
+  });
 
-  // safeStorage is only usable after whenReady — construct and restore here.
+  // safeStorage is only usable after whenReady — construct and restore the
+  // pairing credential FIRST: the recovery drain below sends authenticated
+  // requests, so the token must be in memory before any send can fire.
   // A restored token is presumed valid until a flush 401 says otherwise.
   deviceAuth = new DeviceAuthStore(app.getPath('userData'), {
     isAvailable: () => safeStorage.isEncryptionAvailable(),
@@ -419,15 +674,69 @@ void app.whenReady().then(() => {
   const pairState = deviceAuth.getPairState();
   console.log(pairState.paired ? `Paired as "${pairState.label}".` : 'Not paired.');
 
-  createTray();
-  createWindow();
+  // (A) Resume today from the persisted snapshot if there is one; otherwise
+  // start fresh. A snapshot for a DIFFERENT date means the agent was down
+  // across midnight: park it as recovery-pending and flush it below for its
+  // own date (Option 2 — recover-flush). Upserts are monotonic within a day
+  // (the snapshot is always >= the last server flush), so the re-POST strictly
+  // adds and the dated row can never lose data.
+  dayStore = new DayStore(app.getPath('userData'));
+  const today = localDateString(new Date());
+  const persisted = dayStore.load();
+  if (persisted && persisted.localDate === today) {
+    aggregator = DayAggregator.restore(persisted.summary);
+    // Panel state rides in the same snapshot: per-app minutes (incl. unknowns,
+    // so the 10-min queue threshold spans restarts) and the last-flush time.
+    classifier.restoreSeen(persisted.seenApps);
+    lastFlushAt = persisted.lastFlushAt ?? null;
+    console.log(
+      `Restored ${today} from snapshot: active ${persisted.summary.activeMinutes}m, focus ${persisted.summary.focusMinutes}m`,
+    );
+  } else {
+    if (persisted) {
+      dayStore.writeRecoveryPending(persisted);
+      logRecovery(
+        `startup found snapshot for ${persisted.localDate} (today is ${today}) — parked for recovery flush`,
+      );
+    }
+    aggregator = new DayAggregator(today);
+    dayStore.saveNow(currentPersistedState()); // overwrite the snapshot with empty today
+  }
+  // Drain any parked days (including one just parked above), oldest first.
+  // These carry real dated data, so they skip the startup guard by design.
+  // When not paired, sendSummary returns notReady and the files stay parked —
+  // pairing later (or the post-pair immediate flush) drains them.
+  void retryAllRecoveryPending();
 
-  // IPC for the renderer (Transparency panel + toggle).
+  // IPC for the renderer (Transparency panel + toggle). Registered BEFORE the
+  // window exists so no renderer invoke can ever race an unregistered handler.
   ipcMain.handle('set-paused', (_e, value: unknown) => {
     setPaused(Boolean(value));
     return paused;
   });
   ipcMain.handle('get-status', () => ({ paused, app: statusLabel() }));
+
+  // Transparency panel: the seen-apps list and the unrecognized-apps queue.
+  ipcMain.handle('get-classifier-state', () => classifier.getState());
+
+  // User classifies/reclassifies an app. Overrides win over canonical and
+  // heuristics, and take effect on the NEXT poll with no restart.
+  ipcMain.handle('classify-app', (_e, payload: unknown) => {
+    const { normalized, category } = (payload ?? {}) as {
+      normalized?: unknown;
+      category?: unknown;
+    };
+    if (typeof normalized !== 'string' || !normalized || !isAssignableCategory(category)) {
+      return classifier.getState(); // ignore malformed input, return current state
+    }
+    classifier.setOverride(normalized, category);
+    lastPushedClassifierRev = classifier.revision; // we're returning it right now
+    return classifier.getState();
+  });
+
+  // Manual flush: same path as the scheduled flush, resets the schedule.
+  ipcMain.handle('flush-now', () => flushNow());
+  ipcMain.handle('get-flush-state', () => ({ lastFlushAt }));
 
   // IPC: device pairing (Phase 4b). The token itself never crosses this
   // boundary — the renderer only ever sees PairState.
@@ -447,11 +756,17 @@ void app.whenReady().then(() => {
     void shell.openExternal(`${serverUrl}/settings/devices`);
   });
 
+  createTray();
+  createWindow();
+
+
   // (1) Sleep/wake + lock/unlock: close any open focus run and avoid forming a
   // slice across the gap. Idle detection already treats a locked screen as idle;
-  // these handlers make the run-break explicit and reset the slice clock.
+  // these handlers make the run-break explicit and reset the slice clock. The
+  // interrupt may bank a focus block, so the snapshot is persisted too.
   powerMonitor.on('suspend', () => {
     aggregator.interrupt();
+    dayStore.scheduleSave(currentPersistedState);
     lastPollAt = null;
   });
   powerMonitor.on('resume', () => {
@@ -459,6 +774,7 @@ void app.whenReady().then(() => {
   });
   powerMonitor.on('lock-screen', () => {
     aggregator.interrupt();
+    dayStore.scheduleSave(currentPersistedState);
     lastPollAt = null;
   });
   powerMonitor.on('unlock-screen', () => {
@@ -467,7 +783,7 @@ void app.whenReady().then(() => {
 
   void poll(); // prime lastPollAt
   pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
-  flushTimer = setInterval(() => void flushSummary(), FLUSH_INTERVAL_MS);
+  armFlushTimer();
 });
 
 // Stay alive in the tray when the window is closed.
@@ -475,12 +791,20 @@ app.on('window-all-closed', () => {
   /* tray app — do not quit */
 });
 
-// Final flush on quit so the last interval isn't lost.
+// Final flush on quit so the last interval isn't lost: persist the snapshot
+// first (so even a failed send loses nothing), then send the final state
+// directly — the startup guard doesn't apply on the way out, and the sanity
+// check still protects an immediately-quit empty session from posting zeros.
 app.on('before-quit', (e) => {
   if (quitting) return;
   e.preventDefault();
   quitting = true;
   if (pollTimer) clearInterval(pollTimer);
   if (flushTimer) clearInterval(flushTimer);
-  void flushSummary().finally(() => app.exit(0));
+  if (!dayStore || !aggregator) {
+    app.exit(0);
+    return;
+  }
+  dayStore.saveNow(currentPersistedState());
+  void sendSummary(aggregator.buildSummary(deviceId, AGENT_VERSION)).finally(() => app.exit(0));
 });

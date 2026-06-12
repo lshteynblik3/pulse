@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { Category } from '@pulse/shared';
+import { normalize } from './normalize.js';
 
 const ALL_CATEGORIES: readonly Category[] = [
   'development',
@@ -7,6 +8,7 @@ const ALL_CATEGORIES: readonly Category[] = [
   'creative',
   'admin',
   'browser',
+  'entertainment',
   'other',
 ];
 
@@ -20,22 +22,29 @@ interface RawConfig {
   apps?: Record<string, unknown>;
 }
 
-/** Loaded, validated config with the lookups the agent needs. */
-export interface CategoryConfig {
+/**
+ * The canonical app map (Layer 1) plus the productive-category policy.
+ *
+ * `lookup` is an EXACT match on the normalized name — it is the high-confidence
+ * layer. Anything it misses falls through to heuristics, then to 'unknown'
+ * (handled by the classifier, not here).
+ */
+export interface CanonicalConfig {
   /** Categories that count toward focus time and focus blocks. */
   readonly productive: ReadonlySet<Category>;
-  /** Map an app name to its category ('other' if unknown). */
-  categorize(appName: string): Category;
+  /** Exact canonical category for a normalized app name, or undefined if unmapped. */
+  lookup(normalized: string): Category | undefined;
   /** Whether a category counts as productive (focus). */
   isProductive(category: Category): boolean;
 }
 
 /**
- * Load and validate the category config from disk. Unknown apps fall back to
- * 'other'; unknown/invalid category values are ignored. Restart to reload — no
- * hot-reloading in Phase 2.
+ * Load and validate categories.json. Keys are normalized on load (so the file
+ * stays human-editable with names like "Notepad++" or "zoom.us"); invalid
+ * category values are ignored. Restart to reload — no hot-reloading of the
+ * canonical file (user overrides DO apply live; see classifier).
  */
-export function loadCategoryConfig(path: string): CategoryConfig {
+export function loadCanonicalConfig(path: string): CanonicalConfig {
   const raw = JSON.parse(readFileSync(path, 'utf8')) as RawConfig;
 
   const productive = new Set<Category>(
@@ -44,18 +53,19 @@ export function loadCategoryConfig(path: string): CategoryConfig {
       : [],
   );
 
-  // Lower-cased app name -> category, for case-insensitive matching.
+  // Normalized app name -> category. Both keys here and the live owner.name go
+  // through normalize(), so they match regardless of .exe / spacing / casing.
   const appToCategory = new Map<string, Category>();
   for (const [appName, category] of Object.entries(raw.apps ?? {})) {
     if (isCategory(category)) {
-      appToCategory.set(appName.trim().toLowerCase(), category);
+      appToCategory.set(normalize(appName), category);
     }
   }
 
   return {
     productive,
-    categorize(appName: string): Category {
-      return appToCategory.get(appName.trim().toLowerCase()) ?? 'other';
+    lookup(normalized: string): Category | undefined {
+      return appToCategory.get(normalized);
     },
     isProductive(category: Category): boolean {
       return productive.has(category);

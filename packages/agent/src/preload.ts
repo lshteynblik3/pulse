@@ -4,6 +4,18 @@ type Status = { paused: boolean; app: string };
 type PairState = { paired: boolean; label?: string; pairedAt?: string; defaultLabel: string };
 type PairResult = { ok: true } | { ok: false; error: string };
 
+type SeenApp = {
+  normalized: string;
+  displayName: string;
+  category: string;
+  source: string;
+  minutesToday: number;
+};
+type ClassifierState = { seen: SeenApp[]; unknownQueue: SeenApp[] };
+
+type FlushResult = { ok: boolean; at: number; error?: string; notReady?: boolean };
+type FlushState = { lastFlushAt: number | null };
+
 // Expose a tiny, safe API to the renderer (no Node access in the page itself).
 // The device token NEVER crosses this bridge — only PairState does.
 contextBridge.exposeInMainWorld('pulse', {
@@ -20,6 +32,36 @@ contextBridge.exposeInMainWorld('pulse', {
   /** Turn "mark private" on/off. Resolves to the new paused value. */
   setPaused(value: boolean): Promise<boolean> {
     return ipcRenderer.invoke('set-paused', value);
+  },
+
+  /** Subscribe to classifier-state updates (seen apps + unknown queue). */
+  onClassifierState(callback: (state: ClassifierState) => void): () => void {
+    const listener = (_event: unknown, state: ClassifierState) => callback(state);
+    ipcRenderer.on('classifier-state', listener);
+    return () => ipcRenderer.removeListener('classifier-state', listener);
+  },
+  /** Fetch the classifier state once (e.g. on load). */
+  getClassifierState(): Promise<ClassifierState> {
+    return ipcRenderer.invoke('get-classifier-state');
+  },
+  /** Classify/reclassify an app by its normalized name. Resolves to the new state. */
+  classifyApp(normalized: string, category: string): Promise<ClassifierState> {
+    return ipcRenderer.invoke('classify-app', { normalized, category });
+  },
+
+  /** Trigger an immediate flush. Resolves to the outcome (ok / error). */
+  flushNow(): Promise<FlushResult> {
+    return ipcRenderer.invoke('flush-now');
+  },
+  /** Fetch the last-flush timestamp once (e.g. on load). */
+  getFlushState(): Promise<FlushState> {
+    return ipcRenderer.invoke('get-flush-state');
+  },
+  /** Subscribe to last-flush-timestamp updates. Returns an unsubscribe fn. */
+  onFlushState(callback: (state: FlushState) => void): () => void {
+    const listener = (_event: unknown, state: FlushState) => callback(state);
+    ipcRenderer.on('flush-state', listener);
+    return () => ipcRenderer.removeListener('flush-state', listener);
   },
 
   // --- Device pairing (Phase 4b) ---
