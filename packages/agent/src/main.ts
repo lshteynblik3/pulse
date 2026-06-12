@@ -2,11 +2,12 @@ import {
   app,
   BrowserWindow,
   Tray,
-  Menu,
+  globalShortcut,
   nativeImage,
   ipcMain,
   powerMonitor,
   safeStorage,
+  screen,
   shell,
 } from 'electron';
 import * as path from 'node:path';
@@ -19,7 +20,14 @@ import { loadCanonicalConfig, type CanonicalConfig } from './config.js';
 import { Classifier, isAssignableCategory } from './classifier.js';
 import { DayStore, type PersistedDay } from './day-store.js';
 import { DeviceAuthStore, normalizePairingCode, type PairState } from './device-auth.js';
+import { ScoreCache, type TodayScore } from './score-cache.js';
 import { localDateString } from './time.js';
+
+// Dev/smoke-test hook (env-gated, inert in normal runs): an isolated userData
+// dir lets a test instance run alongside the real agent without fighting it
+// over current-day.json or the device token. Must be set before app ready.
+const devUserData = process.env.PULSE_DEV_USER_DATA;
+if (devUserData) app.setPath('userData', devUserData);
 
 // ---------------------------------------------------------------------------
 // Config — easy to find at the top.
@@ -59,6 +67,9 @@ const AGENT_VERSION = '0.2.0';
 
 let tray: Tray | null = null;
 let win: BrowserWindow | null = null;
+let popover: BrowserWindow | null = null;
+/** When the popover last hid — lets a tray click that blurred it not instantly reopen it. */
+let popoverHiddenAt = 0;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -100,6 +111,16 @@ type AccountIdentity =
   | { status: 'invalid' }
   | { status: 'error' };
 let account: AccountIdentity = { status: 'unpaired' };
+
+/**
+ * Last-known SERVER-computed score for the popover (4h). The agent never
+ * computes any of this — it renders what /api/agent/today returned, cached on
+ * disk (score-cache.json) so the popover opens instantly and refreshes behind.
+ */
+let scoreCache: ScoreCache;
+let todayScore: TodayScore | null = null;
+/** Overlapping refreshes are dropped, same pattern as the flush guard. */
+let scoreFetchInFlight = false;
 
 /** "Mark private": when true, the agent captures nothing at all. */
 let paused = false;
@@ -166,6 +187,17 @@ function loadCanonicalOrDefault(): CanonicalConfig {
       lookup: () => undefined,
       isProductive: () => false,
     };
+  }
+}
+
+/**
+ * Send a state push to every open renderer (Transparency panel + popover).
+ * One state model, two views — the popover subscribes to the same channels
+ * the panel always has instead of growing a parallel set.
+ */
+function broadcast(channel: string, payload: unknown): void {
+  for (const w of [win, popover]) {
+    if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
   }
 }
 
@@ -360,6 +392,7 @@ async function sendSummary(summary: DailySummary): Promise<FlushResult> {
       console.error('Device token rejected by the server — unpairing locally. Re-pair from the web app.');
       deviceAuth.wipe();
       setAccount({ status: 'unpaired' }); // also pushes pair state
+      clearTodayScore(); // the cached score belonged to that pairing
       return {
         ok: false,
         at: Date.now(),
@@ -472,9 +505,9 @@ function armFlushTimer(): void {
   flushTimer = setInterval(() => void flushSummary(), FLUSH_INTERVAL_MS);
 }
 
-// Push the last-flush timestamp to the panel so "Last flushed: …" stays current.
+// Push the last-flush timestamp so "Last flushed: …" stays current everywhere.
 function notifyFlushState(): void {
-  win?.webContents.send('flush-state', { lastFlushAt });
+  broadcast('flush-state', { lastFlushAt });
 }
 
 // ---------------------------------------------------------------------------
@@ -493,13 +526,12 @@ function pairStateForPanel(): PairStateForPanel {
 }
 
 function pushPairState(): void {
-  win?.webContents.send('pair-state', pairStateForPanel());
+  broadcast('pair-state', pairStateForPanel());
 }
 
-/** Update the account identity everywhere it shows: tray menu + panel. */
+/** Update the account identity everywhere it shows: popover + panel. */
 function setAccount(next: AccountIdentity): void {
   account = next;
-  rebuildTrayMenu();
   pushPairState();
 }
 
@@ -541,6 +573,75 @@ async function refreshAccountIdentity(): Promise<void> {
     // Server down or unreachable — unknown, not invalid. Retried next startup.
     console.log('Could not verify the paired account (will retry on next launch):', err);
     setAccount({ status: 'error' });
+  }
+}
+
+function pushTodayScore(): void {
+  broadcast('today-score', todayScore);
+}
+
+/** Unpair/401: the cached score belonged to that pairing — drop it everywhere. */
+function clearTodayScore(): void {
+  todayScore = null;
+  scoreCache.clear();
+  pushTodayScore();
+}
+
+/**
+ * Refresh the popover's score from GET /api/agent/today (4h). The score and
+ * message arrive FINISHED from the server — no scoring math exists agent-side.
+ * Fired on popover open, startup, and after pairing; failures keep the cached
+ * value (the popover shows its freshness hint, so stale is visible, not silent).
+ */
+async function refreshTodayScore(): Promise<void> {
+  const token = deviceAuth.token;
+  if (!token) {
+    // Unpaired: settle the popover into its empty state rather than leaving
+    // it on "Checking today…" forever.
+    pushTodayScore();
+    return;
+  }
+  if (scoreFetchInFlight) return;
+  scoreFetchInFlight = true;
+  try {
+    // The AGENT is the client here: it sends its own local civil day, the same
+    // way the browser does for /api/dashboard. The server never derives "today".
+    const date = localDateString(new Date());
+    const serverUrl = deviceAuth.metadata?.serverUrl ?? SERVER_URL;
+    const res = await fetch(`${serverUrl}/api/agent/today?date=${date}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    // 401: the identity layer (and the next flush) own that story; keep quiet
+    // here and keep the cache — wiping is the ingest 401 path's job alone.
+    if (res.status === 401) return;
+    if (!res.ok) throw new Error(`agent/today responded ${res.status}`);
+    const body = (await res.json()) as {
+      date?: unknown;
+      score?: unknown;
+      message?: unknown;
+      lastActivityAt?: unknown;
+    };
+    if (
+      typeof body.date !== 'string' ||
+      (body.score !== null && typeof body.score !== 'number') ||
+      (body.message !== null && typeof body.message !== 'string') ||
+      (body.lastActivityAt !== null && typeof body.lastActivityAt !== 'string')
+    ) {
+      throw new Error('agent/today response was malformed');
+    }
+    todayScore = {
+      date: body.date,
+      score: body.score as number | null,
+      message: body.message as string | null,
+      lastActivityAt: body.lastActivityAt as string | null,
+      fetchedAt: Date.now(),
+    };
+    scoreCache.save(todayScore);
+    pushTodayScore();
+  } catch (err) {
+    console.log('Score refresh failed (popover keeps the cached value):', err);
+  } finally {
+    scoreFetchInFlight = false;
   }
 }
 
@@ -601,8 +702,9 @@ async function pairWithCode(rawCode: unknown, rawLabel: unknown): Promise<PairRe
   unpairedSkipLogged = false;
   pushPairState();
   console.log('Paired — flushes will resume on the next interval.');
-  // Show which account this device now feeds, right away.
+  // Show which account this device now feeds, right away — and its score.
   void refreshAccountIdentity();
+  void refreshTodayScore();
   // Send the day so far right away rather than waiting up to 15 minutes (the
   // startup guard may still defer it), and drain any days that were parked
   // while unpaired — dated recovery sends skip the startup guard by design.
@@ -621,7 +723,6 @@ function setPaused(value: boolean): void {
     dayStore.scheduleSave(currentPersistedState); // interrupt may bank a focus block
   }
   lastPollAt = null;
-  rebuildTrayMenu();
   updateStatus();
 }
 
@@ -649,47 +750,7 @@ function statusLabel(appOverride?: string): string {
 function updateStatus(appOverride?: string): void {
   const label = statusLabel(appOverride);
   tray?.setToolTip(`Pulse — ${label}`);
-  win?.webContents.send('status', { paused, app: label });
-}
-
-/** One line of account truth for the tray — which account this machine feeds. */
-function accountMenuLabel(): string {
-  switch (account.status) {
-    case 'unpaired':
-      return 'Not paired';
-    case 'checking':
-      return 'Paired — checking account…';
-    case 'ok':
-      // Prefer the account's display name once one is set (editable on the
-      // web's /settings page from 4g); email remains the fallback identity.
-      return `Paired as ${account.displayName ?? account.email}`;
-    case 'invalid':
-      return 'Pairing invalid — re-pair in Settings';
-    case 'error':
-      return 'Paired — account check failed';
-  }
-}
-
-function rebuildTrayMenu(): void {
-  if (!tray) return;
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: paused ? 'Tracking PAUSED (private)' : 'Tracking active', enabled: false },
-      { label: accountMenuLabel(), enabled: false },
-      { type: 'separator' },
-      {
-        label: 'Mark private (pause tracking)',
-        type: 'checkbox',
-        checked: paused,
-        click: (item) => setPaused(item.checked),
-      },
-      { label: 'Show Pulse', click: showWindow },
-      { type: 'separator' },
-      { label: 'Flush now', click: () => void flushNow() },
-      { type: 'separator' },
-      { label: 'Quit', click: () => app.quit() },
-    ]),
-  );
+  broadcast('status', { paused, app: label });
 }
 
 function createWindow(): void {
@@ -722,13 +783,114 @@ function showWindow(): void {
   else win.show();
 }
 
+// ---------------------------------------------------------------------------
+// Tray popover (4h): a frameless card replacing the native context menu.
+// Same creation/preload/IPC pattern as the Transparency panel — second
+// renderer page, same contextBridge API, handlers registered before windows.
+// ---------------------------------------------------------------------------
+
+const POPOVER_WIDTH = 340;
+const POPOVER_HEIGHT = 442;
+
+function createPopover(): void {
+  popover = new BrowserWindow({
+    width: POPOVER_WIDTH,
+    height: POPOVER_HEIGHT,
+    show: false,
+    frame: false,
+    transparent: true, // the card's rounded corners need a transparent backing
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    fullscreenable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  void popover.loadFile(path.join(__dirname, '../src/renderer/popover.html'));
+  popover.webContents.on('did-finish-load', () => {
+    updateStatus();
+    notifyFlushState();
+    pushPairState();
+    pushTodayScore();
+  });
+  // Clicking anywhere else dismisses it — the menu-bar-app contract. The
+  // window is hidden, not destroyed, so reopening is instant.
+  popover.on('blur', () => popover?.hide());
+  popover.on('hide', () => {
+    popoverHiddenAt = Date.now();
+  });
+  popover.on('closed', () => {
+    popover = null;
+  });
+}
+
+/** Place the popover near the tray icon, clamped inside the display's work area. */
+function showPopover(): void {
+  if (!popover) createPopover();
+  const p = popover;
+  if (!p) return;
+
+  const trayBounds = tray?.getBounds();
+  const anchor =
+    trayBounds && trayBounds.width > 0
+      ? { x: trayBounds.x + Math.round(trayBounds.width / 2), y: trayBounds.y }
+      : screen.getCursorScreenPoint();
+  const wa = screen.getDisplayNearestPoint(anchor).workArea;
+
+  // Centered on the icon, opening AWAY from the taskbar edge (above a bottom
+  // bar, below a top bar), then clamped so it never hangs off-screen.
+  const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+  const openUp = anchor.y > wa.y + wa.height / 2;
+  const x = clamp(anchor.x - Math.round(POPOVER_WIDTH / 2), wa.x + 8, wa.x + wa.width - POPOVER_WIDTH - 8);
+  const y = clamp(
+    openUp ? anchor.y - POPOVER_HEIGHT - 10 : anchor.y + 18,
+    wa.y + 8,
+    wa.y + wa.height - POPOVER_HEIGHT - 8,
+  );
+
+  p.setPosition(x, y);
+  if (process.env.PULSE_DEV_OPEN_POPOVER === '1') {
+    const d = screen.getDisplayNearestPoint(anchor);
+    console.log(
+      `popover: tray=${JSON.stringify(trayBounds)} wa=${JSON.stringify(wa)} pos=${x},${y} ` +
+        `actual=${JSON.stringify(p.getBounds())} display=${JSON.stringify(d.bounds)} scale=${d.scaleFactor}`,
+    );
+  }
+  // First-ever open: the page may still be loading, and showing a transparent
+  // window pre-paint reads as a blank flash. Defer that one show to the load.
+  if (p.webContents.isLoading()) {
+    p.webContents.once('did-finish-load', () => {
+      p.show();
+      p.focus();
+    });
+  } else {
+    p.show();
+    p.focus();
+  }
+  // Cached value is already on screen — refresh behind it.
+  void refreshTodayScore();
+}
+
+function togglePopover(): void {
+  if (popover?.isVisible()) {
+    popover.hide();
+    return;
+  }
+  // A tray click while open fires blur (hide) BEFORE this handler — without
+  // this guard the same click would instantly reopen it and the toggle would
+  // never close. 300ms is well under a deliberate second click.
+  if (Date.now() - popoverHiddenAt < 300) return;
+  showPopover();
+}
+
 function createTray(): void {
   tray = new Tray(makeTrayIcon());
-  rebuildTrayMenu();
-  tray.on('click', () => {
-    if (win?.isVisible()) win.hide();
-    else showWindow();
-  });
+  // No native context menu (4h): the popover IS the menu now.
+  tray.on('click', togglePopover);
+  tray.on('right-click', togglePopover);
 }
 
 // ---------------------------------------------------------------------------
@@ -758,8 +920,14 @@ void app.whenReady().then(() => {
   const pairState = deviceAuth.getPairState();
   console.log(pairState.paired ? `Paired as "${pairState.label}".` : 'Not paired.');
   // Resolve WHICH account this device feeds (memory-only; refetched every
-  // launch). Until it answers, the tray/panel show "checking…".
+  // launch). Until it answers, the popover/panel show "checking…".
   void refreshAccountIdentity();
+
+  // Last-known server score: cached so the popover's first open is instant,
+  // refreshed in the background now and on every open.
+  scoreCache = new ScoreCache(app.getPath('userData'));
+  todayScore = scoreCache.load();
+  void refreshTodayScore();
 
   // (A) Resume today from the persisted snapshot if there is one; otherwise
   // start fresh. A snapshot for a DIFFERENT date means the agent was down
@@ -825,6 +993,21 @@ void app.whenReady().then(() => {
   ipcMain.handle('flush-now', () => flushNow());
   ipcMain.handle('get-flush-state', () => ({ lastFlushAt }));
 
+  // Popover (4h). The score is server-computed and cached; the renderer only
+  // ever sees the finished TodayScore.
+  ipcMain.handle('get-today-score', () => todayScore);
+  ipcMain.handle('popover-hide', () => popover?.hide());
+  ipcMain.handle('open-dashboard', () => {
+    const serverUrl = deviceAuth.metadata?.serverUrl ?? SERVER_URL;
+    void shell.openExternal(`${serverUrl}/dashboard`);
+    popover?.hide();
+  });
+  ipcMain.handle('show-panel', () => {
+    popover?.hide();
+    showWindow();
+  });
+  ipcMain.handle('app-quit', () => app.quit());
+
   // IPC: device pairing (Phase 4b). The token itself never crosses this
   // boundary — the renderer only ever sees PairState.
   ipcMain.handle('device-pair-with-code', (_e, code: unknown, label: unknown) =>
@@ -836,6 +1019,7 @@ void app.whenReady().then(() => {
     // server-side is done from /settings/devices.
     deviceAuth.wipe();
     setAccount({ status: 'unpaired' }); // also pushes pair state
+    clearTodayScore(); // the cached score belonged to that pairing
     return pairStateForPanel();
   });
   ipcMain.handle('device-open-pairing-page', () => {
@@ -871,6 +1055,14 @@ void app.whenReady().then(() => {
   void poll(); // prime lastPollAt
   pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
   armFlushTimer();
+
+  // Dev/smoke-test hook (env-gated, inert in normal runs): auto-open the
+  // popover and bind a global toggle so dismiss/reopen can be exercised
+  // without clicking the real tray icon (which may sit in the overflow area).
+  if (process.env.PULSE_DEV_OPEN_POPOVER === '1') {
+    globalShortcut.register('Control+Alt+Shift+P', togglePopover);
+    setTimeout(showPopover, 1200);
+  }
 });
 
 // Stay alive in the tray when the window is closed.

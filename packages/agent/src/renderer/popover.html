@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'" />
+    <title>Pulse</title>
+    <style>
+      /* The dashboard's calm-coach language in a 340px card: paper ground,
+         Fraunces (Georgia fallback — no remote fonts under this CSP) for the
+         numeral, one purple accent, slate/purple/green bands, never red. */
+      :root {
+        --ink: #211f2a;
+        --muted: #6f6b7a;
+        --faint: #9b97a6;
+        --line: #e9e5dd;
+        --accent: #6d4fe5;
+        --accent-deep: #533bc4;
+        --track: #edeae3;
+        --display: Fraunces, Georgia, 'Times New Roman', serif;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        background: transparent;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-size: 13.5px;
+        line-height: 1.5;
+        color: var(--ink);
+        user-select: none;
+        overflow: hidden;
+      }
+      .card {
+        margin: 8px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background:
+          radial-gradient(420px 200px at 90% -8%, rgba(109, 79, 229, 0.08), transparent 60%),
+          #faf9f6;
+        box-shadow: 0 8px 28px rgba(33, 31, 42, 0.18), 0 1px 3px rgba(33, 31, 42, 0.1);
+        padding: 16px 18px 14px;
+        animation: rise 260ms ease both;
+      }
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .card { animation: none; }
+        .gauge-value { transition: none !important; }
+      }
+
+      .top {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 6px;
+      }
+      .kicker {
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .freshness { font-size: 11px; color: var(--faint); }
+
+      .gauge-wrap { text-align: center; }
+      .gauge { position: relative; width: 158px; margin: 0 auto; }
+      .gauge svg { display: block; width: 100%; height: auto; }
+      .gauge-value { transition: stroke-dasharray 500ms ease, stroke 500ms ease; }
+      .gauge-center {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+      }
+      .gauge-score {
+        font-family: var(--display);
+        font-size: 44px;
+        font-weight: 600;
+        line-height: 1;
+      }
+      .gauge-label {
+        font-size: 9.5px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .coach {
+        margin: 2px 0 0;
+        font-weight: 500;
+        text-align: center;
+        min-height: 20px;
+      }
+      .coach.empty { color: var(--muted); font-weight: 400; }
+
+      .divider { border: 0; border-top: 1px solid var(--line); margin: 12px 0 10px; }
+
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        padding: 3px 0;
+      }
+      .row .label { color: var(--muted); font-size: 12.5px; }
+      .identity { font-weight: 600; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .identity.warn { color: #8a6100; font-weight: 600; }
+
+      .dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 6px;
+        background: var(--accent);
+        vertical-align: 1px;
+      }
+      .dot.paused { background: #64748b; }
+
+      .toggle { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+      .toggle input { accent-color: var(--accent); cursor: pointer; }
+
+      .flush-line { font-size: 11.5px; color: var(--faint); min-height: 16px; }
+      .flush-msg.ok { color: #1a7f37; }
+      .flush-msg.info { color: var(--muted); }
+      .flush-msg.err { color: #64748b; font-weight: 600; } /* information, not alarm */
+
+      button {
+        font-family: inherit;
+        cursor: pointer;
+      }
+      .quiet {
+        padding: 5px 12px;
+        border: 1px solid #d8d4cb;
+        border-radius: 8px;
+        background: #fff;
+        color: var(--ink);
+        font-size: 12.5px;
+      }
+      .quiet:hover { border-color: var(--accent); background: #f7f4ff; }
+      .quiet:disabled { opacity: 0.5; cursor: default; }
+
+      .primary {
+        width: 100%;
+        margin-top: 10px;
+        padding: 9px 16px;
+        border: 1px solid var(--accent);
+        border-radius: 9px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .primary:hover { background: var(--accent-deep); }
+
+      .footer {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 8px;
+      }
+      .linkish {
+        background: none;
+        border: none;
+        padding: 2px 0;
+        font-size: 11.5px;
+        color: var(--muted);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .linkish:hover { color: var(--accent-deep); }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="top">
+        <span class="kicker">Pulse · Today</span>
+        <span class="freshness" id="freshness"></span>
+      </div>
+
+      <div class="gauge-wrap">
+        <div class="gauge">
+          <svg viewBox="0 0 200 200" role="img" aria-label="Today's focus score">
+            <g transform="rotate(135 100 100)">
+              <circle cx="100" cy="100" r="84" fill="none" stroke="#edeae3" stroke-width="14"
+                      stroke-linecap="round" stroke-dasharray="395.84 527.79" />
+              <circle id="gauge-value" class="gauge-value" cx="100" cy="100" r="84" fill="none"
+                      stroke="#6d4fe5" stroke-width="14" stroke-linecap="round"
+                      stroke-dasharray="0 527.79" />
+            </g>
+          </svg>
+          <div class="gauge-center">
+            <span class="gauge-score" id="score">–</span>
+            <span class="gauge-label" id="score-label">focus score</span>
+          </div>
+        </div>
+        <p class="coach" id="coach"></p>
+      </div>
+
+      <hr class="divider" />
+
+      <div class="row">
+        <span class="label">Account</span>
+        <span class="identity" id="identity">…</span>
+      </div>
+      <div class="row">
+        <span><span class="dot" id="status-dot"></span><span id="status-text">Tracking</span></span>
+        <label class="toggle"><input type="checkbox" id="private-toggle" />private</label>
+      </div>
+      <div class="row">
+        <span class="flush-line">
+          <span id="flush-last">Last flushed: never</span>
+          <span class="flush-msg" id="flush-msg"></span>
+        </span>
+        <button class="quiet" id="flush-btn">Flush now</button>
+      </div>
+
+      <button class="primary" id="open-dashboard">Open dashboard</button>
+
+      <div class="footer">
+        <button class="linkish" id="show-panel">Transparency panel</button>
+        <button class="linkish" id="quit">Quit Pulse</button>
+      </div>
+    </div>
+
+    <script src="./popover.js"></script>
+  </body>
+</html>

@@ -28,6 +28,15 @@ type ClassifierState = { seen: SeenApp[]; unknownQueue: SeenApp[] };
 type FlushResult = { ok: boolean; at: number; error?: string; notReady?: boolean };
 type FlushState = { lastFlushAt: number | null };
 
+/** Server-computed; the renderer only displays it. Null = nothing cached yet. */
+type TodayScore = {
+  date: string;
+  score: number | null;
+  message: string | null;
+  lastActivityAt: string | null;
+  fetchedAt: number;
+} | null;
+
 // Expose a tiny, safe API to the renderer (no Node access in the page itself).
 // The device token NEVER crosses this bridge — only PairState does.
 contextBridge.exposeInMainWorld('pulse', {
@@ -74,6 +83,35 @@ contextBridge.exposeInMainWorld('pulse', {
     const listener = (_event: unknown, state: FlushState) => callback(state);
     ipcRenderer.on('flush-state', listener);
     return () => ipcRenderer.removeListener('flush-state', listener);
+  },
+
+  // --- Tray popover (Phase 4h) ---
+
+  /** Fetch the cached server-computed score once (popover load). */
+  getTodayScore(): Promise<TodayScore> {
+    return ipcRenderer.invoke('get-today-score');
+  },
+  /** Subscribe to score updates (background refresh landing). */
+  onTodayScore(callback: (score: TodayScore) => void): () => void {
+    const listener = (_event: unknown, score: TodayScore) => callback(score);
+    ipcRenderer.on('today-score', listener);
+    return () => ipcRenderer.removeListener('today-score', listener);
+  },
+  /** Hide the popover (Esc key). */
+  hidePopover(): Promise<void> {
+    return ipcRenderer.invoke('popover-hide');
+  },
+  /** Open the web dashboard in the default browser (never an embedded view). */
+  openDashboard(): Promise<void> {
+    return ipcRenderer.invoke('open-dashboard');
+  },
+  /** Open the Transparency panel window (the popover replaced the menu entry). */
+  showPanel(): Promise<void> {
+    return ipcRenderer.invoke('show-panel');
+  },
+  /** Quit the agent (runs the final flush on the way out). */
+  quitApp(): Promise<void> {
+    return ipcRenderer.invoke('app-quit');
   },
 
   // --- Device pairing (Phase 4b) ---
