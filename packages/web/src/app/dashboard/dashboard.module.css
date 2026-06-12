@@ -43,6 +43,34 @@
   to { opacity: 1; transform: none; }
 }
 
+/* ---- Top bar: signed-in identity + settings links (Phase 4f) ---- */
+
+.topBar {
+  max-width: 880px;
+  margin: 0 auto 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+}
+.identity {
+  color: #6f6b7a;
+}
+.topLinks a {
+  color: #533bc4;
+  font-weight: 600;
+  text-decoration: none;
+  margin-left: 16px;
+}
+.topLinks a:first-child {
+  margin-left: 0;
+}
+.topLinks a:hover {
+  text-decoration: underline;
+}
+
 .kicker {
   margin: 0;
   font-size: 12px;

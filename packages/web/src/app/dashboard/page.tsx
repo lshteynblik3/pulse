@@ -1,4 +1,5 @@
 import { Fraunces } from 'next/font/google';
+import Link from 'next/link';
 import { requireUser } from '@/lib/auth/server';
 import DashboardClient from './dashboard-client';
 import styles from './dashboard.module.css';
@@ -22,10 +23,20 @@ const fraunces = Fraunces({
  * BROWSER's local clock, so the data fetch cannot happen in a server render.
  */
 export default async function DashboardPage() {
-  await requireUser();
+  // The signed-in identity comes from the session requireUser() already
+  // resolves — shown in the top bar so "which account am I looking at?" is
+  // always answerable at a glance (the agent's tray shows its own half).
+  const user = await requireUser();
 
   return (
     <main className={`${fraunces.variable} ${styles.page}`}>
+      <nav className={styles.topBar} aria-label="Account and settings">
+        <span className={styles.identity}>{user.email}</span>
+        <span className={styles.topLinks}>
+          <Link href="/settings/devices">Devices</Link>
+          <Link href="/settings/work-schedule">Work schedule</Link>
+        </span>
+      </nav>
       <DashboardClient />
     </main>
   );
