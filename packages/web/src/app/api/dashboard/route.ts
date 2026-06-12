@@ -87,10 +87,27 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Could not load your dashboard.' }, { status: 500 });
   }
 
+  // "Agent last posted": newest last_used_at across ALL the user's device
+  // tokens, revoked included — a revoked device's past posts are still real
+  // activity. Session client; the RLS select-own policy scopes it.
+  const { data: deviceRows, error: deviceError } = await supabase
+    .from('device_tokens')
+    .select('last_used_at')
+    .not('last_used_at', 'is', null)
+    .order('last_used_at', { ascending: false })
+    .limit(1);
+
+  if (deviceError) {
+    // Same absence≠failure discipline as above: a DB error is a 500, never a
+    // silent "no agent activity".
+    return NextResponse.json({ error: 'Could not load your dashboard.' }, { status: 500 });
+  }
+  const lastActivityAt = (deviceRows?.[0]?.last_used_at as string | undefined) ?? null;
+
   try {
     const { schedule, isDefault } = await getWorkSchedule(supabase, user.id);
     const summaries = ((data ?? []) as DailySummaryRow[]).map(rowToSummary);
-    return NextResponse.json(computeDashboard(summaries, schedule, isDefault, date));
+    return NextResponse.json(computeDashboard(summaries, schedule, isDefault, date, lastActivityAt));
   } catch {
     return NextResponse.json({ error: 'Could not load your dashboard.' }, { status: 500 });
   }
