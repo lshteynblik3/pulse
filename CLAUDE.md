@@ -1,12 +1,23 @@
 # CLAUDE.md
-CURRENT PHASE: ALL of Phase 4 is built — 4a, fix-categorization,
-4b, 4c, 4d (dashboard data API), and 4e (employee dashboard UI),
-each on its own branch, stacked in that order (phase-4e tip is the
-full picture). The old integration-check branch is deleted; its
-settled merge resolutions live on as tag archive/integration-check.
-Nothing merged to main yet — held until Phase 4 fully closes.
-Next: the user verifies /dashboard against their own real day,
-then phase close + merge to main. Don't start Phase 5.
+CURRENT PHASE: 4f (identity + lineage repair) on branch
+phase-4f-identity, stacked on phase-4e. Stage 1 (port the full
+fix-categorization agent state onto this lineage — commit 05c4959,
+2026-06-11) is built and user-verified with real data. Stage 2
+(visible identity: /api/me + shared device-auth helper, agent
+account display, dashboard email + settings links) is built and
+awaits the user's verification. phase-4f-identity tip is now the
+full picture. Nothing merged to main yet — held until Phase 4
+fully closes: user verifies, then phase close + merge to main.
+Don't start Phase 5.
+
+BRANCH-TOPOLOGY CORRECTION (2026-06-11): this file used to claim
+the Phase-4 branches were stacked 4a → fix-categorization → 4b → …
+That was never true in git. phase-4b was built directly on Phase 3;
+4a's auth was lifted in VERBATIM as commit a373106 (not a merge),
+and fix-categorization was never merged into the 4b→4c→4d→4e
+lineage at all — its agent work lived only on its own branch and
+the archive/integration-check tag until Phase 4f Stage 1 ported it
+(from that tag's settled resolutions) in commit 05c4959.
 
 Context for working on **Pulse**. Read this at the start of every session.
 Full detail lives in `SPEC.md` — read it before any architectural work.
@@ -84,9 +95,11 @@ surveillance — that shapes the architecture.
   pair/consume response, the agent's process memory, and the agent's
   safeStorage-encrypted `device-token.bin`. Never in a DB row, log line, or any
   other response. Pairing-code values are never logged either, even on failures.
-- Service-role Supabase usage is limited to two documented sites: the pair/consume
-  claim+insert, and the ingest token lookup. Everything else runs on the user's
-  session client under RLS.
+- Service-role Supabase usage is limited to: the pair/consume claim+insert, and
+  the shared device-token auth helper (`web/src/lib/devices/auth.ts`) + its
+  enumerated callers — /api/ingest (summary upsert) and /api/me (whoami: that
+  token's own user's email/display name, no parameters, no list). Everything
+  else runs on the user's session client under RLS.
 - Known issue (accepted, not solved in 4b): if a user pairs two devices, the
   daily_summaries upsert is last-write-wins per (user_id, date) — one machine's
   day overwrites the other's. Multi-device merging is a later phase.
@@ -115,6 +128,25 @@ surveillance — that shapes the architecture.
   pattern the settings pages migrate TOWARD later — not an exception to undo.
   Charts are hand-rolled SVG; reach for recharts only if date navigation or richer
   charts arrive.
+
+### Identity & lineage (Phase 4f)
+
+- The `entertainment` Category member (a known, deliberately non-productive
+  bucket, distinct from `other`) now lives on this lineage — it came across in
+  the Stage 1 port with the rest of fix-categorization (three-layer classifier,
+  rolling-day persistence via day-store, Transparency-panel restart fix, manual
+  flush control). The agent's internal `unknown` state stays agent-only, never
+  transmitted.
+- GET /api/me is the agent's whoami: device-token auth via the shared helper,
+  returns only that token's own user's email/display name. The agent calls it
+  at `deviceAuth.metadata.serverUrl` on startup and after pairing; the email is
+  MEMORY-ONLY in the agent (PII — never written to disk; device.json stays
+  non-secret metadata). Tray + Transparency panel show "Paired as <email>";
+  the dashboard top bar shows the signed-in session's email. This exists
+  because an agent once posted to one account while the browser viewed
+  another, and neither UI could show it.
+- A whoami 401 only DISPLAYS "pairing invalid" — the ingest 401 path remains
+  the sole owner of wiping a dead credential.
 
 ## Known issues / debt
 
