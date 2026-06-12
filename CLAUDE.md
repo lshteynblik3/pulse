@@ -1,15 +1,15 @@
 # CLAUDE.md
-CURRENT PHASE: 4g (settings consolidation) on branch
-phase-4g-settings, stacked on phase-4f-identity. 4f is fully built
-and user-verified. 4g (one /settings page with account + devices +
-work-schedule sections, /api/account name editing, dashboard
-last-activity line, devices list filtered to active) is built and
-awaits the user's verification — including manual apply of
-migration 0008. phase-4g-settings tip is now the full picture.
-Nothing merged to main yet — held until Phase 4 fully closes: user
-verifies, then phase close + merge to main. Don't start Phase 5
-(and the email+password/OAuth auth rework is its own later phase —
-signup-time name capture belongs there, NOT here).
+CURRENT PHASE: 4h (styled tray popover) on branch
+phase-4h-tray-popover, stacked on phase-4g-settings. 4g is built
+and user-verified (migration 0008 applied). 4h replaces the agent's
+native tray menu with a frameless popover card: server-computed
+score via GET /api/agent/today, score-cache.json for instant open,
+flush/pause/identity/open-dashboard/quit moved into the card. Built;
+awaits the user's verification. phase-4h-tray-popover tip is now
+the full picture. Nothing merged to main yet — held until Phase 4
+fully closes. Don't start Phase 5; the embedded-dashboard auth
+bridge and the email+password/OAuth rework are their own later
+phases.
 
 BRANCH-TOPOLOGY CORRECTION (2026-06-11): this file used to claim
 the Phase-4 branches were stacked 4a → fix-categorization → 4b → …
@@ -96,14 +96,23 @@ surveillance — that shapes the architecture.
   pair/consume response, the agent's process memory, and the agent's
   safeStorage-encrypted `device-token.bin`. Never in a DB row, log line, or any
   other response. Pairing-code values are never logged either, even on failures.
-- Service-role Supabase usage is limited to: the pair/consume claim+insert, the
-  shared device-token auth helper (`web/src/lib/devices/auth.ts`) + its
-  enumerated callers — /api/ingest (summary upsert) and /api/me (whoami: that
-  token's own user's email/display name, no parameters, no list) — and the
-  first-sign-in users-row provisioning upsert in /auth/callback (which predates
-  this list and went unlisted until 4g; it's ignoreDuplicates, so it can never
-  overwrite an edited profile). Everything else runs on the user's session
-  client under RLS.
+- Service-role Supabase usage — THE most security-sensitive surface in the
+  repo; keep this list exhaustive and auditable. Every entry is pinned in app
+  code to one specific user (the pairing code's, the token's, or the session's
+  own); no service-role call ever takes a parameter naming another user:
+    1. /api/devices/pair/consume — pairing-code claim UPDATE + device_tokens
+       INSERT (no session exists at pairing time).
+    2. The shared device-token auth helper (`web/src/lib/devices/auth.ts`):
+       the token-hash lookup, used by every device-authenticated route below.
+    3. /api/ingest — daily_summaries upsert for the token's user.
+    4. /api/me — users email/display_name read for the token's user.
+    5. /api/agent/today (4h) — daily_summaries (31-day window) +
+       work_schedules reads for the token's user, feeding the popover's
+       server-computed score. No RLS path exists without the deferred
+       embedded-dashboard auth bridge.
+    6. /auth/callback — first-sign-in users-row provisioning upsert
+       (ignoreDuplicates: can never overwrite an edited profile).
+  Everything else runs on the user's session client under RLS.
 - Known issue (accepted, not solved in 4b): if a user pairs two devices, the
   daily_summaries upsert is last-write-wins per (user_id, date) — one machine's
   day overwrites the other's. Multi-device merging is a later phase.
@@ -174,6 +183,32 @@ surveillance — that shapes the architecture.
   DashboardPayload.agent.lastActivityAt by the /api/dashboard route, shown as
   a quiet relative-time line under the dashboard date heading and per-device
   in settings. No agent involvement; ingest already bumps last_used_at.
+
+### Tray popover (Phase 4h)
+
+- The native tray context menu is GONE; tray click (left or right) toggles a
+  frameless, transparent, always-on-top popover (`popover.html`/`popover.js`),
+  built on the exact Transparency-panel pattern (same preload, contextBridge,
+  handlers-before-windows). Blur and Esc dismiss it; a 300ms reopen guard
+  stops the tray-click/blur fight. The Transparency panel stays its own window,
+  reachable from the popover's footer link.
+- THE SCORE IS SERVER-COMPUTED, full stop. GET /api/agent/today returns
+  { date, score|null, message|null, lastActivityAt } — score from scoreDay
+  (exported from compute.ts; lookback filtering lives there so no caller can
+  get the window wrong) and message from scoreMessage (format.ts): the SAME
+  band copy the dashboard renders, one source of truth. The agent passes
+  ?date= from its own local day (the agent is the client). score: null means
+  "no data that day" → the popover's calm empty state, never a fake zero.
+  Single-day scoring fetches 31 days (singleDayWindowStart), not the
+  dashboard's 122 — that invariant exists for scoring 92 days.
+- score-cache.json (sibling of current-day.json, deliberately NOT a
+  PersistedDay field — its validator rejects unknown-typed fields) caches the
+  last { score, message, fetchedAt } so the popover opens instantly and
+  refreshes behind a visible "updated X ago" hint. Cleared on unpair/401:
+  the score belonged to that pairing. Identity (email/name) stays memory-only;
+  a score number and a coach sentence are cacheable.
+- Renderer duplication boundary: COLORS (band → slate/purple/green) are
+  presentational and may be mirrored in popover.js; COPY and SCORES never are.
 
 ## Known issues / debt
 
