@@ -76,6 +76,14 @@ export interface DashboardPayload {
   streak: Streak;
   trend: Trend | null;
   schedule: { isDefault: boolean };
+  agent: {
+    /**
+     * Most recent successful agent post across the user's devices — max
+     * device_tokens.last_used_at, supplied by the route (it isn't derivable
+     * from summaries). Full ISO instant; null = no agent has ever posted.
+     */
+    lastActivityAt: string | null;
+  };
 }
 
 /** Score one day against its own trailing-30-day median (exclusive of the day). */
@@ -112,6 +120,7 @@ export function computeDashboard(
   schedule: WorkSchedule,
   isDefault: boolean,
   today: string,
+  lastActivityAt: string | null = null,
 ): DashboardPayload {
   // A summary dated after `today` (clock skew, another device ahead of this
   // client's local day) is excluded by every window filter below.
@@ -132,5 +141,6 @@ export function computeDashboard(
     streak: currentStreak(scoredDays, today, schedule),
     trend: weekOverWeekTrend(scoredDays, today, schedule),
     schedule: { isDefault },
+    agent: { lastActivityAt },
   };
 }

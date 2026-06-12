@@ -33,8 +33,8 @@ export default async function DashboardPage() {
       <nav className={styles.topBar} aria-label="Account and settings">
         <span className={styles.identity}>{user.email}</span>
         <span className={styles.topLinks}>
-          <Link href="/settings/devices">Devices</Link>
-          <Link href="/settings/work-schedule">Work schedule</Link>
+          <Link href="/settings#devices">Devices</Link>
+          <Link href="/settings#work-schedule">Work schedule</Link>
         </span>
       </nav>
       <DashboardClient />

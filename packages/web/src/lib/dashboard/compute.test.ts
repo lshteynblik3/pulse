@@ -44,6 +44,16 @@ describe('fetchWindowStart', () => {
   });
 });
 
+describe('computeDashboard — agent last activity', () => {
+  it('defaults to null (absence, not failure) and passes a supplied instant through untouched', () => {
+    expect(computeDashboard([], ALL_DAYS, true, TODAY).agent.lastActivityAt).toBeNull();
+    expect(
+      computeDashboard([], ALL_DAYS, true, TODAY, '2026-06-11T14:55:00.000Z').agent
+        .lastActivityAt,
+    ).toBe('2026-06-11T14:55:00.000Z');
+  });
+});
+
 describe('computeDashboard — empty state (absence, not failure)', () => {
   it('returns clean empty values for a user with no summaries at all', () => {
     const payload = computeDashboard([], ALL_DAYS, true, TODAY);

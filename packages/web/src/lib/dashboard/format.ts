@@ -74,6 +74,23 @@ export function hourTickLabel(hour: number): string {
 }
 
 /**
+ * Full ISO timestamp → "just now" / "4 minutes ago" / "2 hours ago" /
+ * "3 days ago". `new Date(iso)` is fine HERE: these are real instants with a
+ * timezone, not civil dates — the never-parse-strings rule guards YYYY-MM-DD.
+ * `now` is injectable for tests; clock skew can't go negative.
+ */
+export function relativeTimeLabel(iso: string, now: Date = new Date()): string {
+  const secs = Math.max(0, Math.floor((now.getTime() - new Date(iso).getTime()) / 1000));
+  if (secs < 60) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/**
  * Coach-toned read of the day. SPEC's premise: supportive, never punitive — a
  * low score is described honestly but warmly, never as failure.
  */

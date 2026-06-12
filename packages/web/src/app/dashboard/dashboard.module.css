@@ -88,6 +88,13 @@
   letter-spacing: -0.01em;
 }
 
+/* "Agent last posted X ago" — present but quiet, axis-label gray. */
+.lastActivity {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #9b97a6;
+}
+
 .card {
   background: #fff;
   border: 1px solid #e9e5dd;

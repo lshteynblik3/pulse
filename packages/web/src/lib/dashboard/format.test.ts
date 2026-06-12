@@ -8,6 +8,7 @@ import {
   hourTickLabel,
   localDateString,
   percentLabel,
+  relativeTimeLabel,
   scoreColor,
   scoreMessage,
   streakMessage,
@@ -40,6 +41,24 @@ describe('formatMinutes', () => {
     expect(formatMinutes(60)).toBe('1h');
     expect(formatMinutes(90)).toBe('1h 30m');
     expect(formatMinutes(125.4)).toBe('2h 5m');
+  });
+});
+
+describe('relativeTimeLabel', () => {
+  const now = new Date('2026-06-11T15:00:00.000Z');
+
+  it('walks the unit ladder with correct pluralization', () => {
+    expect(relativeTimeLabel('2026-06-11T14:59:30.000Z', now)).toBe('just now');
+    expect(relativeTimeLabel('2026-06-11T14:59:00.000Z', now)).toBe('1 minute ago');
+    expect(relativeTimeLabel('2026-06-11T14:48:00.000Z', now)).toBe('12 minutes ago');
+    expect(relativeTimeLabel('2026-06-11T14:00:00.000Z', now)).toBe('1 hour ago');
+    expect(relativeTimeLabel('2026-06-11T09:30:00.000Z', now)).toBe('5 hours ago');
+    expect(relativeTimeLabel('2026-06-10T15:00:00.000Z', now)).toBe('1 day ago');
+    expect(relativeTimeLabel('2026-06-04T15:00:00.000Z', now)).toBe('7 days ago');
+  });
+
+  it('clamps clock skew (a timestamp from the future reads as just now)', () => {
+    expect(relativeTimeLabel('2026-06-11T15:02:00.000Z', now)).toBe('just now');
   });
 });
 

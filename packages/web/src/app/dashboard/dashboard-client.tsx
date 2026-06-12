@@ -20,6 +20,7 @@ import {
   hourTickLabel,
   localDateString,
   percentLabel,
+  relativeTimeLabel,
   scoreColor,
   scoreMessage,
   streakMessage,
@@ -97,6 +98,11 @@ export default function DashboardClient() {
       <header>
         <p className={styles.kicker}>Your day</p>
         <h1 className={styles.dateHeading}>{formatDateHeading(payload.date)}</h1>
+        <p className={styles.lastActivity}>
+          {payload.agent.lastActivityAt
+            ? `Agent last posted ${relativeTimeLabel(payload.agent.lastActivityAt)}`
+            : 'No agent has posted yet'}
+        </p>
       </header>
 
       {payload.schedule.isDefault && <DefaultScheduleBanner />}
@@ -122,7 +128,7 @@ function DefaultScheduleBanner() {
   return (
     <p className={styles.banner}>
       Scores currently assume a default Mon–Fri, 8-hour schedule.{' '}
-      <Link href="/settings/work-schedule">Set your real schedule</Link> so days off never
+      <Link href="/settings#work-schedule">Set your real schedule</Link> so days off never
       count against you.
     </p>
   );
@@ -136,7 +142,7 @@ function EmptyHero() {
       <p className={styles.muted}>
         Once the Pulse agent has been running on this account&apos;s machine, today&apos;s
         focus score and hours show up here. If it&apos;s been a while, check{' '}
-        <Link href="/settings/devices">Settings → Devices</Link>.
+        <Link href="/settings#devices">Settings → Devices</Link>.
       </p>
     </section>
   );
