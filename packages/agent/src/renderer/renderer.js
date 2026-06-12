@@ -179,16 +179,37 @@ toggleEl.addEventListener('change', () => {
 const pairedEl = document.getElementById('pair-paired');
 const unpairedEl = document.getElementById('pair-unpaired');
 const pairLabelEl = document.getElementById('pair-label');
+const pairAccountEl = document.getElementById('pair-account');
 const codeEl = document.getElementById('pair-code');
 const deviceLabelEl = document.getElementById('pair-device-label');
 const pairBtn = document.getElementById('pair-btn');
 const pairResultEl = document.getElementById('pair-result');
+
+// The account line answers "WHICH account does this machine feed?" — the one
+// question that was invisible when an agent quietly posted to the wrong login.
+function accountLine(account) {
+  if (!account) return '';
+  switch (account.status) {
+    case 'checking':
+      return 'Account: (checking…)';
+    case 'ok':
+      return `Account: ${account.email}`;
+    case 'invalid':
+      return 'Pairing invalid — re-pair in Settings.';
+    case 'error':
+      return 'Account: could not verify (server unreachable) — retries next launch.';
+    default:
+      return '';
+  }
+}
 
 function renderPairState(state) {
   pairedEl.style.display = state.paired ? 'block' : 'none';
   unpairedEl.style.display = state.paired ? 'none' : 'block';
   if (state.paired) {
     pairLabelEl.textContent = state.label;
+    pairAccountEl.textContent = accountLine(state.account);
+    pairAccountEl.classList.toggle('pair-error', state.account && state.account.status === 'invalid');
     pairResultEl.textContent = '';
   } else {
     // Default the label to the hostname (sent over from the main process —

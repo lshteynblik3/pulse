@@ -86,6 +86,21 @@ let flushInFlight = false;
 /** Wall-clock ms of the last SUCCESSFUL flush, or null if none yet. */
 let lastFlushAt: number | null = null;
 
+/**
+ * The paired ACCOUNT's identity (email), fetched from /api/me. MEMORY-ONLY by
+ * design: email is PII, so it is never written to disk — device.json stays
+ * non-secret metadata only — and is refetched on every startup instead.
+ * 'invalid' means the server 401'd the token; display only — the ingest 401
+ * path owns actually wiping a dead credential.
+ */
+type AccountIdentity =
+  | { status: 'unpaired' }
+  | { status: 'checking' }
+  | { status: 'ok'; email: string; displayName: string | null }
+  | { status: 'invalid' }
+  | { status: 'error' };
+let account: AccountIdentity = { status: 'unpaired' };
+
 /** "Mark private": when true, the agent captures nothing at all. */
 let paused = false;
 /** Timestamp of the previous poll; null means "don't form a slice this poll". */
@@ -344,7 +359,7 @@ async function sendSummary(summary: DailySummary): Promise<FlushResult> {
       // Only this exact status wipes; network errors and 5xx keep the token.
       console.error('Device token rejected by the server — unpairing locally. Re-pair from the web app.');
       deviceAuth.wipe();
-      pushPairState();
+      setAccount({ status: 'unpaired' }); // also pushes pair state
       return {
         ok: false,
         at: Date.now(),
@@ -471,14 +486,62 @@ function notifyFlushState(): void {
 // safeStorage-encrypted blob — see device-auth.ts.
 // ---------------------------------------------------------------------------
 
-type PairStateForPanel = PairState & { defaultLabel: string };
+type PairStateForPanel = PairState & { defaultLabel: string; account: AccountIdentity };
 
 function pairStateForPanel(): PairStateForPanel {
-  return { ...deviceAuth.getPairState(), defaultLabel: os.hostname() };
+  return { ...deviceAuth.getPairState(), defaultLabel: os.hostname(), account };
 }
 
 function pushPairState(): void {
   win?.webContents.send('pair-state', pairStateForPanel());
+}
+
+/** Update the account identity everywhere it shows: tray menu + panel. */
+function setAccount(next: AccountIdentity): void {
+  account = next;
+  rebuildTrayMenu();
+  pushPairState();
+}
+
+/**
+ * Ask the paired server who this device belongs to (GET /api/me, bearer token).
+ * Called on startup after the credential is restored and after a successful
+ * pair — never persisted, so a stale email can't outlive the pairing it came
+ * from. Talks ONLY to the serverUrl recorded at pair time, like every other
+ * authenticated call.
+ */
+async function refreshAccountIdentity(): Promise<void> {
+  const token = deviceAuth.token;
+  if (!token) {
+    setAccount({ status: 'unpaired' });
+    return;
+  }
+  setAccount({ status: 'checking' });
+  const serverUrl = deviceAuth.metadata?.serverUrl ?? SERVER_URL;
+  try {
+    const res = await fetch(`${serverUrl}/api/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) {
+      // Token revoked/deleted. Show it; the next ingest 401 wipes the credential.
+      setAccount({ status: 'invalid' });
+      return;
+    }
+    if (!res.ok) throw new Error(`whoami responded ${res.status}`);
+    const body = (await res.json()) as { email?: unknown; displayName?: unknown };
+    if (typeof body.email !== 'string' || body.email.length === 0) {
+      throw new Error('whoami response was malformed');
+    }
+    setAccount({
+      status: 'ok',
+      email: body.email,
+      displayName: typeof body.displayName === 'string' ? body.displayName : null,
+    });
+  } catch (err) {
+    // Server down or unreachable — unknown, not invalid. Retried next startup.
+    console.log('Could not verify the paired account (will retry on next launch):', err);
+    setAccount({ status: 'error' });
+  }
 }
 
 type PairResult = { ok: true } | { ok: false; error: string };
@@ -538,6 +601,8 @@ async function pairWithCode(rawCode: unknown, rawLabel: unknown): Promise<PairRe
   unpairedSkipLogged = false;
   pushPairState();
   console.log('Paired — flushes will resume on the next interval.');
+  // Show which account this device now feeds, right away.
+  void refreshAccountIdentity();
   // Send the day so far right away rather than waiting up to 15 minutes (the
   // startup guard may still defer it), and drain any days that were parked
   // while unpaired — dated recovery sends skip the startup guard by design.
@@ -587,11 +652,28 @@ function updateStatus(appOverride?: string): void {
   win?.webContents.send('status', { paused, app: label });
 }
 
+/** One line of account truth for the tray — which account this machine feeds. */
+function accountMenuLabel(): string {
+  switch (account.status) {
+    case 'unpaired':
+      return 'Not paired';
+    case 'checking':
+      return 'Paired — checking account…';
+    case 'ok':
+      return `Paired as ${account.email}`;
+    case 'invalid':
+      return 'Pairing invalid — re-pair in Settings';
+    case 'error':
+      return 'Paired — account check failed';
+  }
+}
+
 function rebuildTrayMenu(): void {
   if (!tray) return;
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: paused ? 'Tracking PAUSED (private)' : 'Tracking active', enabled: false },
+      { label: accountMenuLabel(), enabled: false },
       { type: 'separator' },
       {
         label: 'Mark private (pause tracking)',
@@ -673,6 +755,9 @@ void app.whenReady().then(() => {
   deviceAuth.load();
   const pairState = deviceAuth.getPairState();
   console.log(pairState.paired ? `Paired as "${pairState.label}".` : 'Not paired.');
+  // Resolve WHICH account this device feeds (memory-only; refetched every
+  // launch). Until it answers, the tray/panel show "checking…".
+  void refreshAccountIdentity();
 
   // (A) Resume today from the persisted snapshot if there is one; otherwise
   // start fresh. A snapshot for a DIFFERENT date means the agent was down
@@ -748,7 +833,7 @@ void app.whenReady().then(() => {
     // Local-only: forgets the credential on this machine. Revoking the token
     // server-side is done from /settings/devices.
     deviceAuth.wipe();
-    pushPairState();
+    setAccount({ status: 'unpaired' }); // also pushes pair state
     return pairStateForPanel();
   });
   ipcMain.handle('device-open-pairing-page', () => {

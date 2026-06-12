@@ -1,7 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 type Status = { paused: boolean; app: string };
-type PairState = { paired: boolean; label?: string; pairedAt?: string; defaultLabel: string };
+type AccountIdentity =
+  | { status: 'unpaired' }
+  | { status: 'checking' }
+  | { status: 'ok'; email: string; displayName: string | null }
+  | { status: 'invalid' }
+  | { status: 'error' };
+type PairState = {
+  paired: boolean;
+  label?: string;
+  pairedAt?: string;
+  defaultLabel: string;
+  account: AccountIdentity;
+};
 type PairResult = { ok: true } | { ok: false; error: string };
 
 type SeenApp = {
