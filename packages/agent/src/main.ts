@@ -660,7 +660,9 @@ function accountMenuLabel(): string {
     case 'checking':
       return 'Paired — checking account…';
     case 'ok':
-      return `Paired as ${account.email}`;
+      // Prefer the account's display name once one is set (editable on the
+      // web's /settings page from 4g); email remains the fallback identity.
+      return `Paired as ${account.displayName ?? account.email}`;
     case 'invalid':
       return 'Pairing invalid — re-pair in Settings';
     case 'error':

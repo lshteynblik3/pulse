@@ -1,14 +1,15 @@
 # CLAUDE.md
-CURRENT PHASE: 4f (identity + lineage repair) on branch
-phase-4f-identity, stacked on phase-4e. Stage 1 (port the full
-fix-categorization agent state onto this lineage — commit 05c4959,
-2026-06-11) is built and user-verified with real data. Stage 2
-(visible identity: /api/me + shared device-auth helper, agent
-account display, dashboard email + settings links) is built and
-awaits the user's verification. phase-4f-identity tip is now the
-full picture. Nothing merged to main yet — held until Phase 4
-fully closes: user verifies, then phase close + merge to main.
-Don't start Phase 5.
+CURRENT PHASE: 4g (settings consolidation) on branch
+phase-4g-settings, stacked on phase-4f-identity. 4f is fully built
+and user-verified. 4g (one /settings page with account + devices +
+work-schedule sections, /api/account name editing, dashboard
+last-activity line, devices list filtered to active) is built and
+awaits the user's verification — including manual apply of
+migration 0008. phase-4g-settings tip is now the full picture.
+Nothing merged to main yet — held until Phase 4 fully closes: user
+verifies, then phase close + merge to main. Don't start Phase 5
+(and the email+password/OAuth auth rework is its own later phase —
+signup-time name capture belongs there, NOT here).
 
 BRANCH-TOPOLOGY CORRECTION (2026-06-11): this file used to claim
 the Phase-4 branches were stacked 4a → fix-categorization → 4b → …
@@ -95,11 +96,14 @@ surveillance — that shapes the architecture.
   pair/consume response, the agent's process memory, and the agent's
   safeStorage-encrypted `device-token.bin`. Never in a DB row, log line, or any
   other response. Pairing-code values are never logged either, even on failures.
-- Service-role Supabase usage is limited to: the pair/consume claim+insert, and
-  the shared device-token auth helper (`web/src/lib/devices/auth.ts`) + its
+- Service-role Supabase usage is limited to: the pair/consume claim+insert, the
+  shared device-token auth helper (`web/src/lib/devices/auth.ts`) + its
   enumerated callers — /api/ingest (summary upsert) and /api/me (whoami: that
-  token's own user's email/display name, no parameters, no list). Everything
-  else runs on the user's session client under RLS.
+  token's own user's email/display name, no parameters, no list) — and the
+  first-sign-in users-row provisioning upsert in /auth/callback (which predates
+  this list and went unlisted until 4g; it's ignoreDuplicates, so it can never
+  overwrite an edited profile). Everything else runs on the user's session
+  client under RLS.
 - Known issue (accepted, not solved in 4b): if a user pairs two devices, the
   daily_summaries upsert is last-write-wins per (user_id, date) — one machine's
   day overwrites the other's. Multi-device merging is a later phase.
@@ -147,6 +151,29 @@ surveillance — that shapes the architecture.
   another, and neither UI could show it.
 - A whoami 401 only DISPLAYS "pairing invalid" — the ingest 401 path remains
   the sole owner of wiping a dead credential.
+
+### Settings (Phase 4g)
+
+- ONE /settings page (account, devices, work schedule as anchored sections);
+  /settings/devices and /settings/work-schedule are redirects to its anchors.
+  The page uses settings.module.css in the 4e visual language — the sanctioned
+  migration off inline styles, not a new pattern.
+- /api/account (GET/PUT, session client): email read-only (the auth identity),
+  display_name editable. Defense-in-depth like work-schedule: zod .strict()
+  (a crafted email field is rejected, not ignored) at the app layer, and
+  migration 0008's UPDATE-own policy + display_name-ONLY column grant at the
+  DB layer (mirrors 0003's revoked_at pattern). The agent tray prefers
+  displayName over email once set. The future auth phase pre-fills this
+  section; it does not rework it.
+- Data-retention convention: revoked device_tokens rows are KEPT forever as an
+  audit trail (0003's design — created_at/last_used_at/revoked_at per
+  credential); /api/devices lists ACTIVE rows only. pairing_codes rows are
+  likewise lazy-expired by predicate, never swept.
+- "Last activity" = max(device_tokens.last_used_at) across the user's devices
+  (revoked included — past posts are real activity), supplied to
+  DashboardPayload.agent.lastActivityAt by the /api/dashboard route, shown as
+  a quiet relative-time line under the dashboard date heading and per-device
+  in settings. No agent involvement; ingest already bumps last_used_at.
 
 ## Known issues / debt
 
