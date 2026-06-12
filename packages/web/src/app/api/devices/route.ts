@@ -2,12 +2,17 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/auth/server';
 
 /**
- * GET /api/devices — list the signed-in user's paired devices.
+ * GET /api/devices — list the signed-in user's ACTIVE paired devices.
  *
  * Session client only: the RLS select policy on device_tokens scopes the query
  * to user_id = auth.uid(), so a second user can never see (or even count) the
  * first user's devices. token_hash is deliberately not selected — no caller
  * needs it, including this one.
+ *
+ * Revoked rows are filtered out here (Phase 4g): they are KEPT in the table as
+ * a deliberate audit trail (migration 0003: revoked_at is "set once, never
+ * cleared"), but a settings list of credentials that can still post should show
+ * only the ones that can.
  */
 export async function GET() {
   const supabase = await createServerClient();
@@ -20,7 +25,8 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('device_tokens')
-    .select('id, device_label, last_used_at, created_at, revoked_at')
+    .select('id, device_label, last_used_at, created_at')
+    .is('revoked_at', null)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -33,7 +39,6 @@ export async function GET() {
       deviceLabel: (d.device_label as string | null) ?? '(unnamed device)',
       lastUsedAt: d.last_used_at as string | null,
       createdAt: d.created_at as string,
-      revoked: d.revoked_at !== null,
     })),
   });
 }
