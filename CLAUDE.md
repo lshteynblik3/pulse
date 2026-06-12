@@ -1,10 +1,12 @@
 # CLAUDE.md
-CURRENT PHASE: Phase 4a, fix-categorization, 4b, and 4c all done
-on side branches (integration-check, used to verify the first
-three together, is deleted; its tip with the settled merge
-resolutions is preserved as tag archive/integration-check).
+CURRENT PHASE: ALL of Phase 4 is built — 4a, fix-categorization,
+4b, 4c, 4d (dashboard data API), and 4e (employee dashboard UI),
+each on its own branch, stacked in that order (phase-4e tip is the
+full picture). The old integration-check branch is deleted; its
+settled merge resolutions live on as tag archive/integration-check.
 Nothing merged to main yet — held until Phase 4 fully closes.
-Next: 4d (dashboard data API), then 4e (dashboard UI).
+Next: the user verifies /dashboard against their own real day,
+then phase close + merge to main. Don't start Phase 5.
 
 Context for working on **Pulse**. Read this at the start of every session.
 Full detail lives in `SPEC.md` — read it before any architectural work.
@@ -60,10 +62,9 @@ surveillance — that shapes the architecture.
 - **`shared` uses `moduleResolution: node16`** — relative imports there need explicit
   `.js` extensions — **and Next needs `resolve.extensionAlias` in `next.config.mjs`
   for any VALUE import of shared** (type-only imports are erased and never hit
-  webpack). The alias landed in 4c. Note for 4d: `web/lib/scoring`'s existing
-  `DEFAULT_SCHEDULE` value imports are currently unreachable from app code, so they
-  only start exercising this once a route/page imports scoring — the fix is already
-  in place for that.
+  webpack). The alias landed in 4c and got its first live exercise in 4d, when
+  /api/dashboard made `web/lib/scoring`'s `DEFAULT_SCHEDULE` value imports reachable —
+  `pnpm build:web` green confirmed it. Verified working; keep the alias.
 - `WorkSchedule` gained an optional `breaks` field in Phase 4c (a scoring type in
   `shared`, NOT the DailySummary spine; the agent never sends it). Scoring does not
   consume `breaks` yet — 4c persists them for a later phase. No `work_schedules` row
@@ -90,6 +91,31 @@ surveillance — that shapes the architecture.
   daily_summaries upsert is last-write-wins per (user_id, date) — one machine's
   day overwrites the other's. Multi-device merging is a later phase.
 
+### Dashboard (Phases 4d–4e)
+
+- One consolidated `GET /api/dashboard?date=YYYY-MM-DD`, compute-on-read (no scores
+  table yet — persistence is a later phase with the cron). `date` is the CLIENT's
+  local day, computed in the browser from local Date components — the server never
+  derives "today" from its own clock, and nothing ever calls `toISOString()` for a
+  civil date. The payload type `DashboardPayload` lives in
+  `web/src/lib/dashboard/compute.ts` (web-internal), NOT in `shared`.
+- Windowing invariant (documented in compute.ts): fetch 122 days, score the most
+  recent 92, so every scored day gets a FULL trailing-30-day median, exclusive of
+  the day itself. Don't shrink the fetch window without re-deriving this.
+- Absence ≠ failure, end to end: zero rows → 200 with a clean empty payload → calm
+  "no data yet" UI. A DB/loader error → 500 → retryable error card. Never render
+  fake zeros, never let an error masquerade as an empty day.
+- Rounding/formatting is the UI's job only (`web/src/lib/dashboard/format.ts`); the
+  API passes scoring's raw values through (the integer `score` aside).
+- Coach tone is a product rule, not styling: no red anywhere on the dashboard, and
+  low scores read as supportive copy. Score-band copy and colors are unit-tested.
+- `/api/summary/today` was DELETED in 4d (it was unauthenticated, service-role, and
+  cross-user). The two-documented-sites service-role rule above still holds.
+- Styling: the dashboard's CSS module + next/font (Fraunces display face) is the
+  pattern the settings pages migrate TOWARD later — not an exception to undo.
+  Charts are hand-rolled SVG; reach for recharts only if date navigation or richer
+  charts arrive.
+
 ## Known issues / debt
 
 - Phase 4b Tests 8 and 9 were verified by code inspection
@@ -109,10 +135,10 @@ surveillance — that shapes the architecture.
 
 ## Current phase
 
-Phase 1 — DONE. Thin vertical slice works end to end: Electron agent → `/api/ingest` →
-Supabase `raw_events` → `/dashboard`, on real data. Next up: Phase 2 (real agent —
-categorization, idle detection, focus blocks, local aggregation; stop sending raw events
-and send only `DailySummary`). Don't build features ahead of the current phase.
+See the CURRENT PHASE block at the top — that's the live one. Phases 1–3 are done
+and merged; all of Phase 4 is built on the stacked side branches awaiting the
+user's real-data check and merge. Don't build features ahead of the current phase
+(Phase 5 / AI insights has only a placeholder card in the dashboard).
 
 ## Commands
 
