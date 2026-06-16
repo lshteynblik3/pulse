@@ -12,17 +12,20 @@ import type {
 } from '@pulse/shared';
 // Type-only import of the API's own payload type — the page conforms to the
 // shape compute.ts defines, never a parallel one. Erased at compile time.
-import type { DashboardPayload } from '@/lib/dashboard/compute';
+import type { DashboardPayload, WeekSummary } from '@/lib/dashboard/compute';
 import {
   formatDateHeading,
+  formatDateShort,
   formatMinutes,
   hourRangeLabel,
   hourTickLabel,
   localDateString,
   percentLabel,
+  relativeDayLabel,
   relativeTimeLabel,
   scoreColor,
   scoreMessage,
+  shiftDate,
   streakMessage,
 } from '@/lib/dashboard/format';
 import { buildStatCards } from '@/lib/dashboard/stat-cards';
@@ -55,7 +58,12 @@ export default function DashboardClient() {
   // clock. Held in state so date navigation (Batch C) can drive it; every
   // refresh re-fetches THIS date, so a refresh never silently jumps the view to
   // today. (A manual reload recomputes today at mount; the autorefresh doesn't.)
-  const [viewedDate] = useState(() => localDateString(new Date()));
+  // The browser's actual local today, captured once — the forward nav cap.
+  const [actualToday] = useState(() => localDateString(new Date()));
+  const [viewedDate, setViewedDate] = useState(actualToday);
+  // Day view vs the rolling-week summary. Both come from one payload, so the
+  // toggle never refetches.
+  const [view, setView] = useState<'day' | 'week'>('day');
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   // ISO instant of the last successful fetch — drives the "Updated X ago" line.
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
@@ -130,17 +138,103 @@ export default function DashboardClient() {
     return () => clearInterval(t);
   }, []);
 
-  if (state.status === 'loading') {
-    return (
-      <div className={styles.shell}>
-        <p className={styles.muted}>Loading your day…</p>
-      </div>
-    );
-  }
+  // Nav bounds: can't go past today (no future data); backward floor is a fixed
+  // 365 days (a generous "review the past year"; beyond that is empty states
+  // anyway). The picker enforces the same range as the arrows.
+  const floor = shiftDate(actualToday, -365);
+  const atToday = viewedDate >= actualToday;
+  const atFloor = viewedDate <= floor;
+  const relTag = relativeDayLabel(viewedDate, actualToday);
+  const ready = state.status === 'ready' ? state.payload : null;
 
-  if (state.status === 'error') {
-    return (
-      <div className={styles.shell}>
+  return (
+    <div className={styles.shell}>
+      <header>
+        <p className={styles.kicker}>{view === 'week' ? 'Your week' : 'Your day'}</p>
+        <h1 className={styles.dateHeading}>
+          {view === 'week'
+            ? // Rolling week ends on the viewed day, starts 6 days before
+              // (WEEK_WINDOW_DAYS − 1). Derived here so it's stable during loads.
+              `${formatDateShort(shiftDate(viewedDate, -6))} – ${formatDateShort(viewedDate)}`
+            : formatDateHeading(viewedDate)}
+          {view === 'day' && relTag && <span className={styles.dayTag}>{relTag}</span>}
+        </h1>
+        {ready && (
+          <p className={styles.lastActivity}>
+            {ready.agent.lastActivityAt
+              ? `Agent last posted ${relativeTimeLabel(ready.agent.lastActivityAt)}`
+              : 'No agent has posted yet'}
+          </p>
+        )}
+        {ready && lastUpdatedAt && (
+          <p className={styles.freshness}>Updated {relativeTimeLabel(lastUpdatedAt)}</p>
+        )}
+      </header>
+
+      <div className={styles.controls}>
+        <div className={styles.dateNav}>
+          <button
+            className={styles.navArrow}
+            onClick={() => !atFloor && setViewedDate(shiftDate(viewedDate, -1))}
+            disabled={atFloor}
+            aria-label="Previous day"
+          >
+            ‹
+          </button>
+          <input
+            className={styles.datePicker}
+            type="date"
+            value={viewedDate}
+            min={floor}
+            max={actualToday}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v && v >= floor && v <= actualToday) setViewedDate(v);
+            }}
+            aria-label="Pick a day"
+          />
+          <button
+            className={styles.navArrow}
+            onClick={() => !atToday && setViewedDate(shiftDate(viewedDate, 1))}
+            disabled={atToday}
+            aria-label="Next day"
+          >
+            ›
+          </button>
+          {!atToday && (
+            <button className={styles.todayBtn} onClick={() => setViewedDate(actualToday)}>
+              Today
+            </button>
+          )}
+        </div>
+
+        <div className={styles.viewToggle} role="tablist" aria-label="Day or week view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'day'}
+            className={view === 'day' ? styles.viewActive : undefined}
+            onClick={() => setView('day')}
+          >
+            Day
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'week'}
+            className={view === 'week' ? styles.viewActive : undefined}
+            onClick={() => setView('week')}
+          >
+            Week
+          </button>
+        </div>
+      </div>
+
+      {state.status === 'loading' && (
+        <p className={styles.muted}>Loading your {view === 'week' ? 'week' : 'day'}…</p>
+      )}
+
+      {state.status === 'error' && (
         <section className={styles.card}>
           <h2 className={styles.sectionTitle}>Couldn&apos;t load your dashboard</h2>
           <p className={styles.muted}>
@@ -152,32 +246,37 @@ export default function DashboardClient() {
             </button>
           </p>
         </section>
-      </div>
-    );
-  }
+      )}
 
-  const { payload } = state;
-  const { summary, focus } = payload.today;
+      {ready && view === 'day' && <DayView payload={ready} isToday={atToday} />}
+      {ready && view === 'week' && <WeekView week={ready.week} />}
+    </div>
+  );
+}
 
+function DayView({ payload, isToday }: { payload: DashboardPayload; isToday: boolean }) {
+  const { summary, focus, isWorkingDay } = payload.today;
   return (
-    <div className={styles.shell}>
-      <header>
-        <p className={styles.kicker}>Your day</p>
-        <h1 className={styles.dateHeading}>{formatDateHeading(payload.date)}</h1>
-        <p className={styles.lastActivity}>
-          {payload.agent.lastActivityAt
-            ? `Agent last posted ${relativeTimeLabel(payload.agent.lastActivityAt)}`
-            : 'No agent has posted yet'}
-        </p>
-        {lastUpdatedAt && (
-          <p className={styles.freshness}>Updated {relativeTimeLabel(lastUpdatedAt)}</p>
-        )}
-      </header>
-
+    <>
       {payload.schedule.isDefault && <DefaultScheduleBanner />}
 
-      {summary && focus ? <FocusHero focus={focus} /> : <EmptyHero />}
+      {/* Only the HERO branches on working status — a non-working day never shows
+          a score (a score there reads as judgment for a day that shouldn't be
+          judged). Activity, if any, still renders below: the same story the week
+          summary tells — non-working = no score, but the activity is real. */}
+      {!isWorkingDay ? (
+        summary ? (
+          <DayOffWorked />
+        ) : (
+          <NotWorkingDay />
+        )
+      ) : summary && focus ? (
+        <FocusHero focus={focus} />
+      ) : (
+        <EmptyHero isToday={isToday} />
+      )}
 
+      {/* Activity shows whenever there's a summary — including a worked day off. */}
       {summary && <StatCards summary={summary} />}
       {summary && <HourlyChart hourly={summary.hourlyFocusMinutes} />}
 
@@ -189,7 +288,127 @@ export default function DashboardClient() {
       </div>
 
       <InsightsPlaceholder />
+    </>
+  );
+}
+
+/**
+ * Placeholder for the planned per-date schedule-override feature (its own future
+ * phase). Intentionally INERT — it must never write anything, mutate the
+ * schedule, or touch isWorkingDay/scoring. Display affordance only, to signal
+ * the coming feature; disabled so a click does nothing.
+ */
+function MarkAsWorkingDayButton() {
+  return (
+    <button type="button" className={styles.stubButton} disabled aria-disabled="true">
+      Mark as working day
+      <span className={styles.stubNote}>coming soon</span>
+    </button>
+  );
+}
+
+/** Non-working day, no activity — a calm "no score here" state, never a zero. */
+function NotWorkingDay() {
+  return (
+    <section className={styles.card}>
+      <h2 className={styles.sectionTitle}>Not a working day</h2>
+      <p className={styles.muted}>
+        This isn&apos;t a working day on your schedule, so there&apos;s no focus score — rest
+        counts too. If you did work, tracking still runs; it just isn&apos;t judged.
+      </p>
+      <div className={styles.stubRow}>
+        <MarkAsWorkingDayButton />
+      </div>
+    </section>
+  );
+}
+
+/** Non-working day with a summary: show the work honestly, but no score applied. */
+function DayOffWorked() {
+  return (
+    <section className={styles.card}>
+      <h2 className={styles.sectionTitle}>You worked on a day off</h2>
+      <p className={styles.muted}>
+        Here&apos;s what you did. It doesn&apos;t count against your scores or streak — a day
+        off you chose to work is still a day off.
+      </p>
+      <div className={styles.stubRow}>
+        <MarkAsWorkingDayButton />
+      </div>
+    </section>
+  );
+}
+
+/** A small presentational stat card (week view reuses the day's .stat styling). */
+function Stat({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <div className={styles.stat}>
+      <p className={styles.statLabel}>{label}</p>
+      <p className={styles.statValue}>{value}</p>
+      {detail && <p className={styles.statDetail}>{detail}</p>}
     </div>
+  );
+}
+
+function WeekView({ week }: { week: WeekSummary }) {
+  // bestDay === null ⟺ no day in the window had data: a calm empty week, not zeros.
+  if (week.bestDay === null) {
+    return (
+      <section className={styles.card}>
+        <h2 className={styles.sectionTitle}>No focus data this week yet</h2>
+        <p className={styles.muted}>
+          Once the agent has run on a day in this week, your week summary takes shape here.
+          A quiet week is a quiet week, not a problem.
+        </p>
+      </section>
+    );
+  }
+
+  // The score's score is presented through the SAME band helpers the daily view
+  // uses (scoreColor / scoreMessage) — no hardcoded 0–100, so a later rescale
+  // propagates here automatically.
+  const rounded = week.score !== null ? Math.round(week.score) : null;
+
+  return (
+    <>
+      <section className={`${styles.card} ${styles.weekHero}`}>
+        <div className={styles.weekScoreWrap}>
+          <span
+            className={styles.weekScore}
+            style={{ color: rounded !== null ? scoreColor(rounded) : '#9b97a6' }}
+          >
+            {rounded !== null ? rounded : '—'}
+          </span>
+          <span className={styles.gaugeOutOf}>week focus score</span>
+          {/* The honesty line: what the average is actually over. Prominent, by design. */}
+          <p className={styles.weekTracked}>
+            {week.workingDaysTracked} of {week.workingDaysInWindow} working days tracked
+          </p>
+        </div>
+        {rounded !== null && <p className={styles.scoreMessage}>{scoreMessage(rounded)}</p>}
+      </section>
+
+      <div className={styles.statGrid}>
+        <Stat label="Total focus" value={formatMinutes(week.totalFocusMinutes)} />
+        <Stat
+          label="Avg / tracked day"
+          value={week.avgFocusMinutes !== null ? formatMinutes(week.avgFocusMinutes) : '—'}
+        />
+        <Stat label="Focus blocks" value={String(week.totalFocusBlocks)} />
+      </div>
+
+      {/* A celebration, never a ranking — there is deliberately no "worst day". */}
+      <section className={`${styles.card} ${styles.bestDay}`}>
+        <h2 className={styles.sectionTitle}>Your strongest day</h2>
+        <p className={styles.bigStat} style={{ color: scoreColor(Math.round(week.bestDay.score)) }}>
+          {Math.round(week.bestDay.score)}
+          <span>on {formatDateShort(week.bestDay.date)}</span>
+        </p>
+        <p className={styles.muted}>A high point worth repeating.</p>
+      </section>
+
+      <PeakHours peakHours={week.peakHours} />
+    </>
   );
 }
 
@@ -203,15 +422,26 @@ function DefaultScheduleBanner() {
   );
 }
 
-/** No data today is a calm state, not an error — and not zeros pretending to be real. */
-function EmptyHero() {
+/** No data is a calm state, not an error — and not zeros pretending to be real. */
+function EmptyHero({ isToday }: { isToday: boolean }) {
   return (
     <section className={styles.card}>
-      <h2 className={styles.sectionTitle}>No data from today yet</h2>
+      <h2 className={styles.sectionTitle}>
+        {isToday ? 'No data from today yet' : 'No data for this day'}
+      </h2>
       <p className={styles.muted}>
-        Once the Pulse agent has been running on this account&apos;s machine, today&apos;s
-        focus score and hours show up here. If it&apos;s been a while, check{' '}
-        <Link href="/settings#devices">Settings → Devices</Link>.
+        {isToday ? (
+          <>
+            Once the Pulse agent has been running on this account&apos;s machine, today&apos;s
+            focus score and hours show up here. If it&apos;s been a while, check{' '}
+            <Link href="/settings#devices">Settings → Devices</Link>.
+          </>
+        ) : (
+          <>
+            The agent didn&apos;t post a summary for this day — a day off, or a machine that
+            wasn&apos;t running, is a perfectly normal gap, not a problem.
+          </>
+        )}
       </p>
     </section>
   );

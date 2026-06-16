@@ -28,13 +28,14 @@ import type {
 // through here. date-utils is imported by file deliberately — the scoring
 // index keeps it off the public surface, but window arithmetic needs addDays.
 import {
+  averageScoreOverWorkingDays,
   currentStreak,
   focusScore,
   peakHours,
   personalMedian30d,
   weekOverWeekTrend,
 } from '../../../lib/scoring';
-import { addDays } from '../../../lib/scoring/date-utils';
+import { addDays, isWorkingDay } from '../../../lib/scoring/date-utils';
 
 /** Days we emit scores for (ending on `today`) — what streak and trend can see. */
 export const SCORED_WINDOW_DAYS = 92;
@@ -79,6 +80,13 @@ export interface DashboardPayload {
     summary: DailySummary | null;
     /** Focus gauge (score) + "why this score" breakdown. Null when summary is. */
     focus: FocusScoreResult | null;
+    /**
+     * Whether the viewed day is a working day under the user's schedule (the
+     * existing isWorkingDay, NOT a new model). The daily view suppresses the
+     * score on a non-working day — a score there reads as judgment for a day
+     * that shouldn't be judged. A derived display boolean, like schedule.isDefault.
+     */
+    isWorkingDay: boolean;
   };
   /** Top focused hours over the 30-day window; [] when there's no data. */
   peakHours: PeakHour[];
@@ -93,6 +101,104 @@ export interface DashboardPayload {
      * from summaries). Full ISO instant; null = no agent has ever posted.
      */
     lastActivityAt: string | null;
+  };
+  /** Rolling-7-day rollup ending on `date` — the Day/Week toggle's Week view. */
+  week: WeekSummary;
+}
+
+/** Days in the rolling week window (the viewed day + the 6 before it). */
+export const WEEK_WINDOW_DAYS = 7;
+
+/**
+ * The week summary (Batch C). A rolling 7-day rollup ending on the viewed day —
+ * an AGGREGATION of existing per-day scores, never a new formula. Web-internal,
+ * like DashboardPayload. Presentation must stay scale-agnostic (no hardcoded
+ * 0–100): the score flows through the same band helpers the daily view uses, so
+ * a later scoring rescale propagates to both at once.
+ */
+export interface WeekSummary {
+  /** First day of the window (`end` − 6) and the last (the viewed day). */
+  start: string;
+  end: string;
+  /**
+   * Average daily focus score over WORKING DAYS WITH DATA in the window — the
+   * SAME `averageScoreOverWorkingDays` the week-over-week trend uses, so the two
+   * can't drift. null when no working day in the window had data.
+   */
+  score: number | null;
+  /** Working days WITH data — the "X" in "X of Y working days tracked". */
+  workingDaysTracked: number;
+  /** Working days in the window regardless of data — the "Y". */
+  workingDaysInWindow: number;
+  /** Summed across every day WITH data in the window (real activity is real). */
+  totalFocusMinutes: number;
+  /** totalFocusMinutes ÷ days-with-data; null when no day had data. */
+  avgFocusMinutes: number | null;
+  totalFocusBlocks: number;
+  /**
+   * The strongest day in the window — a CELEBRATION, never a ranking. There is
+   * deliberately no "worst day" or per-day ordering. null when no day had data.
+   */
+  bestDay: { date: string; score: number } | null;
+  /** Most-focused hours across the window (reuses the 30-day peakHours engine). */
+  peakHours: PeakHour[];
+}
+
+/**
+ * Aggregate the rolling 7-day window ending on `endDate`. Pure; reuses the
+ * already-computed `scoredDays` (no re-scoring) and the same `summaries` the
+ * per-day payload was built from — so the week summary costs ZERO extra queries.
+ */
+export function computeWeekSummary(
+  summaries: DailySummary[],
+  scoredDays: ScoredDay[],
+  schedule: WorkSchedule,
+  endDate: string,
+): WeekSummary {
+  const start = addDays(endDate, -(WEEK_WINDOW_DAYS - 1));
+  const inWindow = (d: string) => d >= start && d <= endDate;
+
+  const weekSummaries = summaries.filter((s) => inWindow(s.date));
+  const weekScored = scoredDays.filter((s) => inWindow(s.date));
+
+  // Score: the SAME average the week-over-week trend computes (offsets 0–6),
+  // via the shared helper — single source of truth, can't drift.
+  const { average: score, count: workingDaysTracked } = averageScoreOverWorkingDays(
+    scoredDays,
+    endDate,
+    0,
+    WEEK_WINDOW_DAYS - 1,
+    schedule,
+  );
+
+  // Y: working days in the window regardless of whether they have data.
+  let workingDaysInWindow = 0;
+  for (let offset = 0; offset < WEEK_WINDOW_DAYS; offset++) {
+    if (isWorkingDay(addDays(endDate, -offset), schedule)) workingDaysInWindow++;
+  }
+
+  const totalFocusMinutes = weekSummaries.reduce((acc, s) => acc + s.focusMinutes, 0);
+  const totalFocusBlocks = weekSummaries.reduce((acc, s) => acc + s.focusBlockCount, 0);
+  const avgFocusMinutes = weekSummaries.length === 0 ? null : totalFocusMinutes / weekSummaries.length;
+
+  // Strongest tracked day (any day with data — a great Saturday still counts as
+  // your best). A celebration callout, never a comparison against other days.
+  const bestDay = weekScored.reduce<{ date: string; score: number } | null>(
+    (best, d) => (best === null || d.score > best.score ? { date: d.date, score: d.score } : best),
+    null,
+  );
+
+  return {
+    start,
+    end: endDate,
+    score,
+    workingDaysTracked,
+    workingDaysInWindow,
+    totalFocusMinutes,
+    avgFocusMinutes,
+    totalFocusBlocks,
+    bestDay,
+    peakHours: peakHours(weekSummaries, schedule),
   };
 }
 
@@ -147,6 +253,7 @@ export function computeDashboard(
     today: {
       summary: todaySummary,
       focus: todaySummary ? scoreDay(todaySummary, summaries, schedule) : null,
+      isWorkingDay: isWorkingDay(today, schedule),
     },
     peakHours: peakHours(
       summaries.filter((s) => s.date >= peakStart && s.date <= today),
@@ -156,5 +263,7 @@ export function computeDashboard(
     trend: weekOverWeekTrend(scoredDays, today, schedule),
     schedule: { isDefault },
     agent: { lastActivityAt },
+    // Same summaries + scoredDays the per-day payload used — no extra query.
+    week: computeWeekSummary(summaries, scoredDays, schedule, today),
   };
 }

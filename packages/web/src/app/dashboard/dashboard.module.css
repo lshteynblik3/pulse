@@ -120,6 +120,153 @@
   color: #b3afbb;
 }
 
+/* "Today" / "Yesterday" / "3 days ago" tag beside the date heading (Batch C). */
+.dayTag {
+  margin-left: 12px;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #6d4fe5;
+  vertical-align: 3px;
+}
+
+/* ---- Date nav + Day/Week toggle (Batch C) ---- */
+
+.controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dateNav {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.navArrow {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e3dfd7;
+  border-radius: 8px;
+  background: #fff;
+  color: #533bc4;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.navArrow:hover:not(:disabled) {
+  border-color: #6d4fe5;
+  background: #f7f4ff;
+}
+.navArrow:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.datePicker {
+  padding: 6px 10px;
+  border: 1px solid #e3dfd7;
+  border-radius: 8px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  color: #211f2a;
+}
+.todayBtn {
+  margin-left: 4px;
+  padding: 7px 14px;
+  border: 1px solid #6d4fe5;
+  border-radius: 8px;
+  background: #6d4fe5;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.todayBtn:hover {
+  background: #5b3fd0;
+}
+.viewToggle {
+  display: inline-flex;
+  border: 1px solid #e3dfd7;
+  border-radius: 999px;
+  background: #fff;
+  padding: 3px;
+}
+.viewToggle button {
+  border: none;
+  background: none;
+  padding: 6px 18px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #6f6b7a;
+  cursor: pointer;
+}
+.viewActive {
+  background: #efeafd !important;
+  color: #3f2e99 !important;
+}
+
+/* ---- Week view (Batch C) ---- */
+
+.weekHero {
+  text-align: center;
+}
+.weekScoreWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.weekScore {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 60px;
+  font-weight: 600;
+  line-height: 1;
+}
+/* The "X of Y working days tracked" honesty line — prominent under the score. */
+.weekTracked {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #533bc4;
+}
+/* Best-day callout: a warm celebration panel, never an alarm. */
+.bestDay {
+  background: linear-gradient(135deg, #ffffff, #f3fbf5);
+  border-color: #d7ecdd;
+}
+
+/* ---- Non-working day: stubbed "Mark as working day" (display only) ---- */
+
+.stubRow {
+  margin-top: 14px;
+}
+/* Deliberately disabled — a placeholder for the future per-date override phase. */
+.stubButton {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px dashed #d8d4cb;
+  border-radius: 8px;
+  background: #faf9f6;
+  color: #6f6b7a;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: not-allowed;
+}
+.stubNote {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #b3afbb;
+}
+
 .card {
   background: #fff;
   border: 1px solid #e9e5dd;

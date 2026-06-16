@@ -40,6 +40,28 @@ export function formatDateShort(date: string): string {
   return toLocalDate(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
 }
 
+/** Shift a civil date by whole days, staying in local civil time (never UTC). */
+export function shiftDate(date: string, days: number): string {
+  const d = toLocalDate(date);
+  d.setDate(d.getDate() + days);
+  return localDateString(d);
+}
+
+/**
+ * A relative tag for the date heading so it's always obvious which day you're
+ * on: "Today" / "Yesterday" / "N days ago". null for the future (the date nav
+ * caps at today, so that shouldn't happen — but never label a future day).
+ */
+export function relativeDayLabel(date: string, today: string): string | null {
+  if (date === today) return 'Today';
+  const diffDays = Math.round(
+    (toLocalDate(today).getTime() - toLocalDate(date).getTime()) / 86_400_000,
+  );
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays > 1) return `${diffDays} days ago`;
+  return null;
+}
+
 /** Minutes → "45m" / "2h" / "3h 25m", rounded to the nearest whole minute. */
 export function formatMinutes(minutes: number): string {
   const total = Math.round(minutes);

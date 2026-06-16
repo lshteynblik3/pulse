@@ -12,12 +12,25 @@ function payloadFor(date: string): DashboardPayload {
   // about WHICH date is fetched and WHEN, not the card rendering.
   return {
     date,
-    today: { summary: null, focus: null },
+    today: { summary: null, focus: null, isWorkingDay: true },
     peakHours: [],
     streak: { count: 0, endedOn: null, endReason: 'no_history' },
     trend: null,
     schedule: { isDefault: false },
     agent: { lastActivityAt: null },
+    // These autorefresh tests stay in Day view; an empty week satisfies the type.
+    week: {
+      start: date,
+      end: date,
+      score: null,
+      workingDaysTracked: 0,
+      workingDaysInWindow: 5,
+      totalFocusMinutes: 0,
+      avgFocusMinutes: null,
+      totalFocusBlocks: 0,
+      bestDay: null,
+      peakHours: [],
+    },
   };
 }
 
