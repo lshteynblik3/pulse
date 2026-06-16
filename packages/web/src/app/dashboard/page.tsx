@@ -1,6 +1,7 @@
 import { Fraunces } from 'next/font/google';
 import Link from 'next/link';
 import { requireUser } from '@/lib/auth/server';
+import { signOut } from '@/lib/auth/actions';
 import DashboardClient from './dashboard-client';
 import styles from './dashboard.module.css';
 
@@ -26,16 +27,34 @@ export default async function DashboardPage() {
   // The signed-in identity comes from the session requireUser() already
   // resolves — shown in the top bar so "which account am I looking at?" is
   // always answerable at a glance (the agent's tray shows its own half).
+  // requireUser() redirects unauthenticated visitors to /signin, so `user` is
+  // present here; the login-link branch below is defensive only.
   const user = await requireUser();
 
   return (
     <main className={`${fraunces.variable} ${styles.page}`}>
-      <nav className={styles.topBar} aria-label="Account and settings">
-        <span className={styles.identity}>{user.email}</span>
-        <span className={styles.topLinks}>
-          <Link href="/settings#devices">Devices</Link>
-          <Link href="/settings#work-schedule">Work schedule</Link>
-        </span>
+      <nav className={styles.topBar} aria-label="Account">
+        {user.email ? (
+          <>
+            <span className={styles.identity}>{user.email}</span>
+            <span className={styles.topLinks}>
+              {/* Two vestigial nav buttons collapsed into one — /settings already
+                  consolidates account/devices/work-schedule as anchored sections. */}
+              <Link href="/settings">Settings</Link>
+              {/* Sign out via the existing server action → clears the session and
+                  redirects to /signin (the login page, reworked in a later phase). */}
+              <form action={signOut} className={styles.logoutForm}>
+                <button type="submit" className={styles.logout}>
+                  Log out
+                </button>
+              </form>
+            </span>
+          </>
+        ) : (
+          <span className={styles.topLinks}>
+            <Link href="/signin">Log in</Link>
+          </span>
+        )}
       </nav>
       <DashboardClient />
     </main>

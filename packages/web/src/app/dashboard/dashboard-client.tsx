@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type {
   DailySummary,
@@ -25,7 +25,18 @@ import {
   scoreMessage,
   streakMessage,
 } from '@/lib/dashboard/format';
+import { buildStatCards } from '@/lib/dashboard/stat-cards';
+import { SHOW_TASKS } from '@/lib/flags';
 import styles from './dashboard.module.css';
+
+/**
+ * Autorefresh cadence. The score only moves on the agent's 15-min flush or
+ * another device posting, so 5 min keeps the page honest without wasted
+ * fetches (same rationale as the agent widget). Paused while the tab is hidden.
+ */
+const REFRESH_MS = 5 * 60 * 1000;
+/** How often the "Updated X ago" label re-renders so it stays honest. */
+const FRESHNESS_TICK_MS = 30 * 1000;
 
 /**
  * Three states, kept distinct all the way to the UI: loading, error (retryable
@@ -39,30 +50,85 @@ type LoadState =
   | { status: 'ready'; payload: DashboardPayload };
 
 export default function DashboardClient() {
+  // The date the page is SHOWING. "Today" originates HERE, from the browser's
+  // local clock components — never toISOString() (UTC) and never the server's
+  // clock. Held in state so date navigation (Batch C) can drive it; every
+  // refresh re-fetches THIS date, so a refresh never silently jumps the view to
+  // today. (A manual reload recomputes today at mount; the autorefresh doesn't.)
+  const [viewedDate] = useState(() => localDateString(new Date()));
   const [state, setState] = useState<LoadState>({ status: 'loading' });
+  // ISO instant of the last successful fetch — drives the "Updated X ago" line.
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  // A ticking counter so the relative "Updated X ago" label stays honest
+  // between fetches, without re-fetching.
+  const [, setFreshnessTick] = useState(0);
+  const inFlight = useRef<AbortController | null>(null);
 
-  const load = useCallback(() => {
-    setState({ status: 'loading' });
+  // Fetch the dashboard for `date`. A BACKGROUND refresh (interval / refocus)
+  // shows no loading state and, on failure, keeps the last good data on screen
+  // (the freshness just goes stale) — like the agent pill, a transient blip
+  // never blanks a working dashboard. Only a foreground load surfaces the error.
+  const load = useCallback((date: string, opts?: { background?: boolean }) => {
+    const background = opts?.background ?? false;
+    inFlight.current?.abort();
     const controller = new AbortController();
-    // "Today" originates HERE, from the browser's local clock components —
-    // never toISOString() (UTC) and never the server's clock. Recomputed on
-    // every load/retry so a tab left open across midnight fetches the new day.
-    const date = localDateString(new Date());
+    inFlight.current = controller;
+    if (!background) setState({ status: 'loading' });
     fetch(`/api/dashboard?date=${date}`, { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error(`dashboard responded ${res.status}`);
         return (await res.json()) as DashboardPayload;
       })
-      .then((payload) => setState({ status: 'ready', payload }))
+      .then((payload) => {
+        setState({ status: 'ready', payload });
+        setLastUpdatedAt(new Date().toISOString());
+      })
       .catch((err: unknown) => {
-        if (!(err instanceof DOMException && err.name === 'AbortError')) {
-          setState({ status: 'error' });
-        }
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (!background) setState({ status: 'error' });
       });
-    return () => controller.abort();
   }, []);
 
-  useEffect(() => load(), [load]);
+  // Initial load + autorefresh. The 5-min interval runs only while the tab is
+  // visible; hiding pauses it, refocusing fires one immediate refresh and
+  // restarts it — mirrors the agent widget's visible-only timer.
+  useEffect(() => {
+    load(viewedDate);
+
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (interval === null) {
+        interval = setInterval(() => load(viewedDate, { background: true }), REFRESH_MS);
+      }
+    };
+    const stop = () => {
+      if (interval !== null) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        load(viewedDate, { background: true });
+        start();
+      }
+    };
+    if (!document.hidden) start();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+      inFlight.current?.abort();
+    };
+  }, [load, viewedDate]);
+
+  // Keep "Updated X ago" honest between fetches.
+  useEffect(() => {
+    const t = setInterval(() => setFreshnessTick((n) => n + 1), FRESHNESS_TICK_MS);
+    return () => clearInterval(t);
+  }, []);
 
   if (state.status === 'loading') {
     return (
@@ -81,7 +147,7 @@ export default function DashboardClient() {
             Something went wrong on our side — your data is safe. Give it another try.
           </p>
           <p style={{ marginTop: 14 }}>
-            <button className={styles.retry} onClick={() => load()}>
+            <button className={styles.retry} onClick={() => load(viewedDate)}>
               Try again
             </button>
           </p>
@@ -103,6 +169,9 @@ export default function DashboardClient() {
             ? `Agent last posted ${relativeTimeLabel(payload.agent.lastActivityAt)}`
             : 'No agent has posted yet'}
         </p>
+        {lastUpdatedAt && (
+          <p className={styles.freshness}>Updated {relativeTimeLabel(lastUpdatedAt)}</p>
+        )}
       </header>
 
       {payload.schedule.isDefault && <DefaultScheduleBanner />}
@@ -244,17 +313,9 @@ function BreakdownBars({ breakdown }: { breakdown: ScoreBreakdown }) {
 }
 
 function StatCards({ summary }: { summary: DailySummary }) {
-  const stats: { label: string; value: string; detail?: string }[] = [
-    { label: 'Active time', value: formatMinutes(summary.activeMinutes) },
-    { label: 'Focus time', value: formatMinutes(summary.focusMinutes) },
-    { label: 'Meetings', value: formatMinutes(summary.meetingMinutes) },
-    {
-      label: 'Focus blocks',
-      value: String(summary.focusBlockCount),
-      detail: `${formatMinutes(summary.focusBlockMinutes)} inside blocks`,
-    },
-    { label: 'Tasks done', value: String(summary.tasksCompleted) },
-  ];
+  // The Tasks card is gated behind SHOW_TASKS — tasksCompleted has no real
+  // source until Phase 7, so a "0" reads as failure. See lib/flags / stat-cards.
+  const stats = buildStatCards(summary, SHOW_TASKS);
   return (
     <div className={styles.statGrid}>
       {stats.map(({ label, value, detail }) => (

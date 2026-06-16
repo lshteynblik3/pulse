@@ -58,16 +58,34 @@
 .identity {
   color: #6f6b7a;
 }
+.topLinks {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 16px;
+}
 .topLinks a {
   color: #533bc4;
   font-weight: 600;
   text-decoration: none;
-  margin-left: 16px;
-}
-.topLinks a:first-child {
-  margin-left: 0;
 }
 .topLinks a:hover {
+  text-decoration: underline;
+}
+.logoutForm {
+  display: inline;
+}
+/* A link-styled button so "Log out" sits inline with the Settings link. */
+.logout {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #533bc4;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.logout:hover {
   text-decoration: underline;
 }
 
@@ -93,6 +111,13 @@
   margin: 6px 0 0;
   font-size: 13px;
   color: #9b97a6;
+}
+
+/* "Updated X ago" autorefresh freshness — quieter still than lastActivity. */
+.freshness {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #b3afbb;
 }
 
 .card {
@@ -214,7 +239,8 @@
 
 .statGrid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* auto-fit so the row stays even whether 4 cards (Tasks hidden) or 5 show. */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
 }
 .stat {
