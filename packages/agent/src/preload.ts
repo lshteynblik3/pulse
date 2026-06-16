@@ -97,9 +97,31 @@ contextBridge.exposeInMainWorld('pulse', {
     ipcRenderer.on('today-score', listener);
     return () => ipcRenderer.removeListener('today-score', listener);
   },
-  /** Hide the popover (Esc key). */
+  /** Hide the widget (× button / Esc) — agent keeps running, tray restores it. */
   hidePopover(): Promise<void> {
     return ipcRenderer.invoke('popover-hide');
+  },
+  /** Flip pin-on-top. Resolves to the new pin state (also persisted on disk). */
+  setPinned(value: boolean): Promise<boolean> {
+    return ipcRenderer.invoke('set-pinned', value);
+  },
+  /** Switch between the full card and the compact pill. Resolves to the new mode. */
+  setCompact(value: boolean): Promise<boolean> {
+    return ipcRenderer.invoke('set-compact', value);
+  },
+  /** Fetch the widget's window state once (pin + compact, e.g. on load). */
+  getWidgetState(): Promise<{ pinned: boolean; compact: boolean }> {
+    return ipcRenderer.invoke('get-widget-state');
+  },
+  /** Fetch the unclassified-apps nudge count once (e.g. on load). */
+  getClassifyNudge(): Promise<{ count: number }> {
+    return ipcRenderer.invoke('get-classify-nudge');
+  },
+  /** Subscribe to nudge-count changes (apps crossing the classify threshold). */
+  onClassifyNudge(callback: (nudge: { count: number }) => void): () => void {
+    const listener = (_event: unknown, nudge: { count: number }) => callback(nudge);
+    ipcRenderer.on('classify-nudge', listener);
+    return () => ipcRenderer.removeListener('classify-nudge', listener);
   },
   /** Open the web dashboard in the default browser (never an embedded view). */
   openDashboard(): Promise<void> {

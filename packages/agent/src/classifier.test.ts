@@ -198,4 +198,34 @@ describe('Classifier (live overrides + unknown tracking)', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // (Unit 3) The classify-nudge reads the unknown queue for its count and writes
+  // the user's choice through setOverride → user-overrides.json (NOT
+  // categories.json), taking effect live. This locks that whole read+write path.
+  it('nudge: queue size is the count; classifying one writes the override file and drops it', () => {
+    const { classifier, overridesPath, dir } = makeClassifier();
+    try {
+      // Two apps each cross the 10-min threshold → the widget nudge reads "2".
+      for (const name of ['MysteryA', 'MysteryB']) {
+        const c = classifier.classify(name);
+        classifier.recordObservation(c, name, 11);
+      }
+      expect(classifier.getState().unknownQueue).toHaveLength(2);
+
+      // Write: assign one a category — user-overrides.json records the mapping.
+      classifier.setOverride('mysterya', 'development');
+      const overrides = JSON.parse(readFileSync(overridesPath, 'utf8')) as Record<
+        string,
+        { category: string }
+      >;
+      expect(overrides['mysterya']?.category).toBe('development');
+
+      // …and it reclassifies live + leaves the queue, so the nudge now reads "1".
+      expect(classifier.classify('MysteryA').source).toBe('override');
+      const queue = classifier.getState().unknownQueue;
+      expect(queue.map((a) => a.normalized)).toEqual(['mysteryb']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

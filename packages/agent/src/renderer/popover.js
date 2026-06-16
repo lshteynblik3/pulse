@@ -14,6 +14,13 @@ const toggleEl = document.getElementById('private-toggle');
 const flushLastEl = document.getElementById('flush-last');
 const flushMsgEl = document.getElementById('flush-msg');
 const flushBtn = document.getElementById('flush-btn');
+const pinBtn = document.getElementById('pin-btn');
+const closeBtn = document.getElementById('close-btn');
+const collapseBtn = document.getElementById('collapse-btn');
+const expandBtn = document.getElementById('expand-btn');
+const pillScoreEl = document.getElementById('pill-score');
+const nudgeEl = document.getElementById('nudge');
+const nudgeTextEl = document.getElementById('nudge-text');
 
 const GAUGE_C = 2 * Math.PI * 84; // matches the SVG's r=84
 const GAUGE_ARC = GAUGE_C * 0.75; // 270° sweep, same treatment as the dashboard
@@ -31,6 +38,15 @@ function scoreColor(score) {
   if (score >= 60) return '#6d4fe5';
   if (score >= 40) return '#8d77e0';
   return '#64748b';
+}
+
+// Pill-only band color. The card sits on a light ground and uses the colors
+// above. The pill sits on a DARK slate chip, where every band reads EXCEPT the
+// low/slate band (#64748b) — that would be slate-on-slate. Remap just that band
+// to a light, calm slate so a low-score day still reads (coach tone, never red).
+function pillScoreColor(score) {
+  if (score < 40) return '#cbd5e1'; // slate band → light slate, legible on the chip
+  return scoreColor(score);
 }
 
 function relativeTime(ms) {
@@ -65,12 +81,17 @@ function renderScore() {
     gaugeValueEl.setAttribute('stroke-dasharray', `${filled} ${GAUGE_C}`);
     coachEl.textContent = current.message || '';
     coachEl.className = 'coach';
+    // The pill mirrors the same number, with a chip-tuned band color (Unit 2).
+    pillScoreEl.textContent = String(current.score);
+    pillScoreEl.style.color = pillScoreColor(current.score);
   } else {
     scoreEl.textContent = '–';
     scoreEl.style.color = '#6f6b7a';
     scoreLabelEl.textContent = 'focus score';
     gaugeValueEl.setAttribute('stroke-dasharray', `0 ${GAUGE_C}`);
     coachEl.className = 'coach empty';
+    pillScoreEl.textContent = '–';
+    pillScoreEl.style.color = '#94a3b8'; // visible placeholder dash on the dark chip
     coachEl.textContent = current
       ? 'No data yet today — your score lands here once the agent posts.'
       : everLoaded
@@ -116,6 +137,30 @@ function renderStatus(status) {
   toggleEl.checked = status.paused;
 }
 
+// (4i) Pin-on-top: reflect the persisted state. The main process owns the
+// actual setAlwaysOnTop + persistence; here we just mirror it visually.
+function renderPin(pinned) {
+  pinBtn.classList.toggle('active', pinned);
+  pinBtn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+  pinBtn.title = pinned ? 'Pinned on top — click to unpin' : 'Keep on top';
+}
+
+// (Unit 2) Compact pill vs full card. The main process owns the actual window
+// resize + persistence; here we just swap which root element is visible.
+function renderCompact(compact) {
+  document.body.classList.toggle('compact', compact);
+}
+
+// (Unit 3) Gentle nudge — hidden at zero, never alarming.
+function renderNudge(count) {
+  if (count > 0) {
+    nudgeTextEl.textContent = `${count} app${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} classifying`;
+    nudgeEl.style.display = 'flex';
+  } else {
+    nudgeEl.style.display = 'none';
+  }
+}
+
 function renderFlushLast() {
   flushLastEl.textContent = lastFlushAt
     ? `Last flushed ${relativeTime(lastFlushAt)}`
@@ -145,6 +190,7 @@ window.pulse.onFlushState((state) => {
   lastFlushAt = state.lastFlushAt;
   renderFlushLast();
 });
+window.pulse.onClassifyNudge((nudge) => renderNudge(nudge.count));
 
 window.pulse.getTodayScore().then((score) => {
   today = score;
@@ -157,6 +203,11 @@ window.pulse.getFlushState().then((state) => {
   lastFlushAt = state.lastFlushAt;
   renderFlushLast();
 });
+window.pulse.getWidgetState().then((state) => {
+  renderPin(state.pinned);
+  renderCompact(state.compact);
+});
+window.pulse.getClassifyNudge().then((nudge) => renderNudge(nudge.count));
 
 // Relative times ("updated 3m ago", "last flushed 12m ago") stay honest while
 // the popover sits open.
@@ -192,6 +243,30 @@ flushBtn.addEventListener('click', () => {
   }, 2000);
 });
 
+pinBtn.addEventListener('click', () => {
+  // Optimistic flip off the current visual state; trust the returned truth.
+  const next = !pinBtn.classList.contains('active');
+  window.pulse.setPinned(next).then(renderPin);
+});
+
+closeBtn.addEventListener('click', () => {
+  // Hide, not quit — the agent keeps tracking; the tray icon brings it back.
+  window.pulse.hidePopover();
+});
+
+// Compact toggle round-trips: collapse lives on the card, expand on the pill.
+collapseBtn.addEventListener('click', () => {
+  window.pulse.setCompact(true).then(renderCompact);
+});
+expandBtn.addEventListener('click', () => {
+  window.pulse.setCompact(false).then(renderCompact);
+});
+
+// The nudge opens the existing Transparency panel (its classify UI).
+nudgeEl.addEventListener('click', () => {
+  window.pulse.showPanel();
+});
+
 document.getElementById('open-dashboard').addEventListener('click', () => {
   window.pulse.openDashboard();
 });
@@ -202,7 +277,7 @@ document.getElementById('quit').addEventListener('click', () => {
   window.pulse.quitApp();
 });
 
-// Esc dismisses — the popover must never trap focus.
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') window.pulse.hidePopover();
-});
+// No Esc-to-dismiss (4i): a persistent companion must not have an involuntary
+// dismiss path — screenshot tools (Win+Shift+S) deliver an Esc to the focused
+// widget and would hide it. The × button hides; the tray restores. Same
+// principle as dropping blur-dismiss in base 4i.

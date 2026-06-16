@@ -36,7 +36,8 @@
         background:
           radial-gradient(420px 200px at 90% -8%, rgba(109, 79, 229, 0.08), transparent 60%),
           #faf9f6;
-        box-shadow: 0 8px 28px rgba(33, 31, 42, 0.18), 0 1px 3px rgba(33, 31, 42, 0.1);
+        /* No outer drop-shadow: the transparent window clips it to an ugly square
+           at the window edge. The border defines the card instead. */
         padding: 16px 18px 14px;
         animation: rise 260ms ease both;
       }
@@ -49,11 +50,18 @@
         .gauge-value { transition: none !important; }
       }
 
+      /* (4i) The header + the score area are the drag handle. Both are
+         control-free, so dragging there can never swallow a click. EVERY
+         interactive element is explicitly no-drag below, belt-and-suspenders. */
+      button, input, label, a, .toggle { -webkit-app-region: no-drag; }
+
       .top {
         display: flex;
         justify-content: space-between;
-        align-items: baseline;
+        align-items: center;
+        gap: 8px;
         margin-bottom: 6px;
+        -webkit-app-region: drag;
       }
       .kicker {
         font-size: 10.5px;
@@ -62,9 +70,30 @@
         text-transform: uppercase;
         color: var(--accent);
       }
-      .freshness { font-size: 11px; color: var(--faint); }
+      .top-right { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      .freshness { font-size: 11px; color: var(--faint); white-space: nowrap; }
 
-      .gauge-wrap { text-align: center; }
+      .iconbtn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--faint);
+        line-height: 1;
+      }
+      .iconbtn svg { display: block; }
+      .iconbtn:hover { background: #f1eee8; color: var(--ink); border-color: var(--line); }
+      /* Pin reads as "active/filled" when on — the whole point is a clear state. */
+      .pin-btn:hover { background: #f0ecff; color: var(--accent-deep); border-color: #e0d9ff; }
+      .pin-btn.active { background: #efeaff; color: var(--accent); border-color: #d8ccff; }
+      .close-btn { font-size: 18px; }
+
+      .gauge-wrap { text-align: center; -webkit-app-region: drag; }
       .gauge { position: relative; width: 158px; margin: 0 auto; }
       .gauge svg { display: block; width: 100%; height: auto; }
       .gauge-value { transition: stroke-dasharray 500ms ease, stroke 500ms ease; }
@@ -172,13 +201,130 @@
         text-underline-offset: 2px;
       }
       .linkish:hover { color: var(--accent-deep); }
+
+      /* (Unit 3) Gentle nudge: "N apps need classifying" → opens the panel.
+         Shown only when the queue is non-empty; never alarming. */
+      .nudge {
+        display: none; /* JS reveals when count > 0 */
+        width: 100%;
+        margin-top: 10px;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 11px;
+        border: 1px solid #e6dffb;
+        border-radius: 9px;
+        background: #f7f4ff;
+        color: var(--accent-deep);
+        font-size: 12.5px;
+        text-align: left;
+      }
+      .nudge:hover { border-color: var(--accent); background: #f1ecff; }
+      .nudge .nudge-dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--accent); flex: none;
+      }
+      .nudge .nudge-text { flex: 1; }
+      .nudge .nudge-arrow { color: var(--accent); font-weight: 700; }
+
+      /* (Unit 2 / 4i) Compact pill: score only, on a near-opaque dark slate CHIP —
+         a surface we control. No frost/blur (renders fuzzy on a transparent
+         window) and no text-shadow. The score is the SOLE in-flow child so it
+         centers on a whole pixel (crisp); the label is pinned, out of flow. */
+      body.compact { display: flex; align-items: center; justify-content: center; height: 100vh; }
+      body.compact .card { display: none; }
+      .pill {
+        display: none;
+        position: relative;
+        width: 136px;
+        height: 60px;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding-bottom: 14px; /* room for the pinned label; keeps the score on a whole pixel */
+        /* Hairline that reads BOTH ways: the light rim shows on dark backgrounds,
+           the opaque dark chip body shows on light ones — always contained. */
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.9); /* slate-900, ~90% opaque */
+        -webkit-app-region: drag;
+        animation: rise 200ms ease both;
+      }
+      body.compact .pill { display: flex; }
+      .pill-score {
+        font-family: var(--display);
+        font-size: 38px;
+        font-weight: 600;
+        line-height: 1;
+      }
+      .pill-label {
+        position: absolute;
+        bottom: 5px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        line-height: 1;
+        font-size: 9px;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: #94a3b8; /* slate-400 — legible on the dark chip */
+      }
+      .pill-expand {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        background: transparent;
+        color: #94a3b8;
+      }
+      .pill-expand:hover { background: rgba(255, 255, 255, 0.12); color: #e2e8f0; }
     </style>
   </head>
   <body>
     <div class="card">
       <div class="top">
         <span class="kicker">Pulse · Today</span>
-        <span class="freshness" id="freshness"></span>
+        <span class="top-right">
+          <span class="freshness" id="freshness"></span>
+          <button
+            class="iconbtn collapse-btn"
+            id="collapse-btn"
+            type="button"
+            title="Compact view"
+            aria-label="Switch to compact pill view"
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 4 9 9M9 9H5M9 9V5" />
+              <path d="M20 20 15 15M15 15h4M15 15v4" />
+            </svg>
+          </button>
+          <button
+            class="iconbtn pin-btn"
+            id="pin-btn"
+            type="button"
+            title="Keep on top"
+            aria-label="Keep on top"
+            aria-pressed="false"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+              <path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z" />
+            </svg>
+          </button>
+          <button
+            class="iconbtn close-btn"
+            id="close-btn"
+            type="button"
+            title="Hide (Pulse keeps running)"
+            aria-label="Hide widget"
+          >×</button>
+        </span>
       </div>
 
       <div class="gauge-wrap">
@@ -218,12 +364,31 @@
         <button class="quiet" id="flush-btn">Flush now</button>
       </div>
 
+      <button class="nudge" id="nudge" type="button">
+        <span class="nudge-dot"></span>
+        <span class="nudge-text" id="nudge-text"></span>
+        <span class="nudge-arrow">→</span>
+      </button>
+
       <button class="primary" id="open-dashboard">Open dashboard</button>
 
       <div class="footer">
         <button class="linkish" id="show-panel">Transparency panel</button>
         <button class="linkish" id="quit">Quit Pulse</button>
       </div>
+    </div>
+
+    <!-- (Unit 2) Compact pill — shown when body.compact; score only. -->
+    <div class="pill" id="pill">
+      <button class="pill-expand" id="expand-btn" type="button" title="Expand" aria-label="Expand to full card">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 9 4 4M4 4h4M4 4v4" />
+          <path d="M15 15 20 20M20 20h-4M20 20v-4" />
+        </svg>
+      </button>
+      <div class="pill-score" id="pill-score">–</div>
+      <div class="pill-label">focus</div>
     </div>
 
     <script src="./popover.js"></script>
