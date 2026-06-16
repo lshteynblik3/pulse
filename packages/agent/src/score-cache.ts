@@ -21,10 +21,23 @@ import * as path from 'node:path';
 export interface TodayScore {
   /** The LOCAL calendar day the score belongs to (YYYY-MM-DD, agent-local). */
   date: string;
-  /** Server-computed focus score; null = no data that day (a real state). */
+  /**
+   * Server-computed RAW 0–100 focus score; null = no data OR a non-working day.
+   * Used ONLY for the popover's band color/arc (those key off raw, like the web).
+   */
   score: number | null;
+  /**
+   * The /130 number the popover SHOWS (server-applied displayScore), or null.
+   * Web and tray show the same number for the same raw score (Batch D).
+   */
+  displayScore: number | null;
   /** The dashboard's own band copy, verbatim from the server. */
   message: string | null;
+  /**
+   * Whether the agent's local day is a working day. false → the popover shows a
+   * calm "Not a working day" state with no score, mirroring the web daily view.
+   */
+  isWorkingDay: boolean;
   /** Most recent successful agent post across the user's devices (ISO). */
   lastActivityAt: string | null;
   /** When this was fetched (ms epoch) — drives the popover freshness hint. */
@@ -39,7 +52,9 @@ function isTodayScore(value: unknown): value is TodayScore {
   const v = value as Partial<Record<keyof TodayScore, unknown>>;
   if (typeof v.date !== 'string' || !LOCAL_DATE_RE.test(v.date)) return false;
   if (v.score !== null && typeof v.score !== 'number') return false;
+  if (v.displayScore !== null && typeof v.displayScore !== 'number') return false;
   if (v.message !== null && typeof v.message !== 'string') return false;
+  if (typeof v.isWorkingDay !== 'boolean') return false;
   if (v.lastActivityAt !== null && typeof v.lastActivityAt !== 'string') return false;
   return typeof v.fetchedAt === 'number';
 }

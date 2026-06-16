@@ -10,7 +10,9 @@ let cache: ScoreCache;
 const SAMPLE: TodayScore = {
   date: '2026-06-12',
   score: 67,
+  displayScore: 87, // round(67 × 1.3), applied server-side (Batch D)
   message: 'A solid, focused day. Nice work.',
+  isWorkingDay: true,
   lastActivityAt: '2026-06-12T14:55:00.000Z',
   fetchedAt: 1_750_000_000_000,
 };
@@ -35,9 +37,32 @@ describe('ScoreCache', () => {
   });
 
   it('round-trips the no-data-today shape (nulls are values, not corruption)', () => {
-    const empty: TodayScore = { ...SAMPLE, score: null, message: null, lastActivityAt: null };
+    const empty: TodayScore = {
+      ...SAMPLE,
+      score: null,
+      displayScore: null,
+      message: null,
+      lastActivityAt: null,
+    };
     cache.save(empty);
     expect(cache.load()).toEqual(empty);
+  });
+
+  it('round-trips a non-working-day shape (no score, isWorkingDay false)', () => {
+    const dayOff: TodayScore = {
+      ...SAMPLE,
+      score: null,
+      displayScore: null,
+      message: null,
+      isWorkingDay: false,
+    };
+    cache.save(dayOff);
+    expect(cache.load()).toEqual(dayOff);
+  });
+
+  it('rejects a present-but-wrong-typed isWorkingDay', () => {
+    cache.save({ ...SAMPLE, isWorkingDay: 'yes' as unknown as boolean });
+    expect(cache.load()).toBeNull();
   });
 
   it('a corrupt file loads as null and is removed', () => {

@@ -12,7 +12,7 @@
  * tone is unit-testable, not scattered through JSX.
  */
 
-import type { Streak } from '@pulse/shared';
+import type { Streak, Trend } from '@pulse/shared';
 
 /** "YYYY-MM-DD" from a Date's LOCAL components — the client's civil day. */
 export function localDateString(d: Date): string {
@@ -132,6 +132,38 @@ export function scoreColor(score: number): string {
   if (score >= 60) return '#6d4fe5';
   if (score >= 40) return '#8d77e0';
   return '#64748b';
+}
+
+/**
+ * Display rescale (Batch D): the engine scores raw 0–100, but the UI shows a
+ * 0–130 scale (a linear ×1.3 stretch) so the numbers feel more granular and
+ * motivating. This is the ONE place the multiply and the rounding live — route
+ * EVERY score the user SEES through it (web gauge/week/best-day/trend + the tray
+ * popover, which applies it server-side in /api/agent/today).
+ *
+ * Display-only. Bands, colors, the streak threshold, and the engine all keep
+ * keying off the RAW 0–100 score — only the rendered integer is rescaled, so
+ * scoreColor/scoreMessage/streak must NEVER be fed this value.
+ *
+ * Intentionally a simple linear ×1.3 FOR NOW — kept as a single editable
+ * function so a later data-anchored curve (once real days are watched) is a
+ * one-function change. Clamped to 130 so nothing ever shows 131+.
+ */
+export function displayScore(raw: number): number {
+  return Math.min(130, Math.round(raw * 1.3));
+}
+
+/**
+ * The week-over-week trend on the /130 display scale. The "points" delta is the
+ * difference of the two DISPLAYED integers — NOT the scaled raw delta — so the
+ * on-screen arithmetic is self-consistent: a near-flat week whose two averages
+ * round to the same display number reads as 0 ("holding steady"), even if the
+ * raw averages differ slightly. Display-only; the raw trend is untouched.
+ */
+export function trendDisplay(trend: Trend): { thisWeek: number; lastWeek: number; delta: number } {
+  const thisWeek = displayScore(trend.thisWeek);
+  const lastWeek = displayScore(trend.lastWeek);
+  return { thisWeek, lastWeek, delta: thisWeek - lastWeek };
 }
 
 /**

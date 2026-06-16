@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Streak } from '@pulse/shared';
+import type { Streak, Trend } from '@pulse/shared';
 import {
+  displayScore,
   formatDateHeading,
   formatDateShort,
   formatMinutes,
@@ -12,6 +13,7 @@ import {
   scoreColor,
   scoreMessage,
   streakMessage,
+  trendDisplay,
 } from './format';
 
 describe('localDateString', () => {
@@ -108,6 +110,45 @@ describe('score bands (the coach tone, pinned)', () => {
     }
     expect(scoreColor(95)).toBe('#1a7f37');
     expect(scoreColor(70)).toBe('#6d4fe5');
+  });
+});
+
+describe('displayScore — the ×1.3 /130 display rescale (Batch D)', () => {
+  it('rounds to a clean integer at the documented values', () => {
+    expect(displayScore(77)).toBe(100); // 100.1 rounds DOWN to 100, never 100.1
+    expect(displayScore(90)).toBe(117); // exact
+    expect(displayScore(99)).toBe(129); // 128.7 rounds UP to 129
+    expect(displayScore(0)).toBe(0);
+  });
+
+  it('clamps the ceiling so nothing ever shows 131+', () => {
+    expect(displayScore(100)).toBe(130); // 100 × 1.3 = 130, the clamp ceiling
+    expect(displayScore(101)).toBe(130); // defensive: raw can't exceed 100, but never 131
+  });
+
+  it('the raw streak floor (60) displays as 78 — same band, just a bigger number', () => {
+    expect(displayScore(60)).toBe(78);
+  });
+});
+
+describe('trendDisplay — /130 numbers + a self-consistent points delta', () => {
+  const trend = (thisWeek: number, lastWeek: number): Trend => ({
+    thisWeek,
+    lastWeek,
+    delta: thisWeek - lastWeek,
+    percentChange: 0,
+  });
+
+  it('shows both weeks on the /130 scale and the delta of the DISPLAYED numbers', () => {
+    // raw 60 → 78, raw 50 → 65, so the screen reads "↑ 13 points".
+    expect(trendDisplay(trend(60, 50))).toEqual({ thisWeek: 78, lastWeek: 65, delta: 13 });
+  });
+
+  it('a near-flat week reads "holding steady" (delta 0) when both round to the same number', () => {
+    // raw 61.0 → round(79.3) = 79; raw 60.6 → round(78.78) = 79. The sub-display
+    // difference vanishes on screen, so the delta is 0 — self-consistent with the
+    // two identical numbers shown, not a phantom ↑1.
+    expect(trendDisplay(trend(61.0, 60.6))).toEqual({ thisWeek: 79, lastWeek: 79, delta: 0 });
   });
 });
 

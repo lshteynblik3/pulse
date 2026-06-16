@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import type { DailySummary } from '@pulse/shared';
 import { authenticateDevice } from '@/lib/devices/auth';
 import { getSupabaseAdmin } from '@/lib/supabase';
-import { scoreDay, singleDayWindowStart } from '@/lib/dashboard/compute';
-import { scoreMessage } from '@/lib/dashboard/format';
+import { buildAgentTodayPayload, singleDayWindowStart } from '@/lib/dashboard/compute';
 import { isValidLocalDate } from '@/lib/work-schedule/schema';
 import { getWorkSchedule } from '@/lib/work-schedule/loader';
 
@@ -106,15 +105,10 @@ export async function GET(request: Request) {
   try {
     const { schedule } = await getWorkSchedule(admin, device.userId);
     const summaries = ((data ?? []) as DailySummaryRow[]).map(rowToSummary);
-    const todaySummary = summaries.find((s) => s.date === date) ?? null;
-    const focus = todaySummary ? scoreDay(todaySummary, summaries, schedule) : null;
-
-    return NextResponse.json({
-      date,
-      score: focus ? focus.score : null,
-      message: focus ? scoreMessage(focus.score) : null,
-      lastActivityAt: (deviceRows?.[0]?.last_used_at as string | undefined) ?? null,
-    });
+    const lastActivityAt = (deviceRows?.[0]?.last_used_at as string | undefined) ?? null;
+    // Score shaping (raw score + /130 displayScore + non-working suppression) is
+    // a pure, tested helper. No new data is read — same query, same userId.
+    return NextResponse.json(buildAgentTodayPayload(summaries, schedule, date, lastActivityAt));
   } catch {
     return NextResponse.json({ error: 'Could not load your day.' }, { status: 500 });
   }

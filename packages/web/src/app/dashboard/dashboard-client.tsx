@@ -14,6 +14,7 @@ import type {
 // shape compute.ts defines, never a parallel one. Erased at compile time.
 import type { DashboardPayload, WeekSummary } from '@/lib/dashboard/compute';
 import {
+  displayScore,
   formatDateHeading,
   formatDateShort,
   formatMinutes,
@@ -27,6 +28,7 @@ import {
   scoreMessage,
   shiftDate,
   streakMessage,
+  trendDisplay,
 } from '@/lib/dashboard/format';
 import { buildStatCards } from '@/lib/dashboard/stat-cards';
 import { SHOW_TASKS } from '@/lib/flags';
@@ -364,10 +366,9 @@ function WeekView({ week }: { week: WeekSummary }) {
     );
   }
 
-  // The score's score is presented through the SAME band helpers the daily view
-  // uses (scoreColor / scoreMessage) — no hardcoded 0–100, so a later rescale
-  // propagates here automatically.
-  const rounded = week.score !== null ? Math.round(week.score) : null;
+  // Color + band copy key off the RAW score; only the rendered number is the
+  // /130 display value (displayScore). scoreColor/scoreMessage never see ×1.3.
+  const raw = week.score !== null ? Math.round(week.score) : null;
 
   return (
     <>
@@ -375,9 +376,9 @@ function WeekView({ week }: { week: WeekSummary }) {
         <div className={styles.weekScoreWrap}>
           <span
             className={styles.weekScore}
-            style={{ color: rounded !== null ? scoreColor(rounded) : '#9b97a6' }}
+            style={{ color: raw !== null ? scoreColor(raw) : '#9b97a6' }}
           >
-            {rounded !== null ? rounded : '—'}
+            {week.score !== null ? displayScore(week.score) : '—'}
           </span>
           <span className={styles.gaugeOutOf}>week focus score</span>
           {/* The honesty line: what the average is actually over. Prominent, by design. */}
@@ -385,7 +386,7 @@ function WeekView({ week }: { week: WeekSummary }) {
             {week.workingDaysTracked} of {week.workingDaysInWindow} working days tracked
           </p>
         </div>
-        {rounded !== null && <p className={styles.scoreMessage}>{scoreMessage(rounded)}</p>}
+        {raw !== null && <p className={styles.scoreMessage}>{scoreMessage(raw)}</p>}
       </section>
 
       <div className={styles.statGrid}>
@@ -401,7 +402,7 @@ function WeekView({ week }: { week: WeekSummary }) {
       <section className={`${styles.card} ${styles.bestDay}`}>
         <h2 className={styles.sectionTitle}>Your strongest day</h2>
         <p className={styles.bigStat} style={{ color: scoreColor(Math.round(week.bestDay.score)) }}>
-          {Math.round(week.bestDay.score)}
+          {displayScore(week.bestDay.score)}
           <span>on {formatDateShort(week.bestDay.date)}</span>
         </p>
         <p className={styles.muted}>A high point worth repeating.</p>
@@ -464,12 +465,18 @@ const GAUGE_C = 2 * Math.PI * GAUGE_R;
 const GAUGE_ARC = GAUGE_C * 0.75; // a 270° sweep, opening at the bottom
 
 function Gauge({ score }: { score: number }) {
+  // Arc + color key off the RAW score (raw/100 == displayScore/130, so the arc
+  // is unchanged); only the rendered number is the /130 display value.
   const clamped = Math.max(0, Math.min(100, score));
   const filled = (clamped / 100) * GAUGE_ARC;
   const color = scoreColor(score);
   return (
     <div className={styles.gauge}>
-      <svg viewBox="0 0 200 200" role="img" aria-label={`Focus score ${score} out of 100`}>
+      <svg
+        viewBox="0 0 200 200"
+        role="img"
+        aria-label={`Focus score ${displayScore(score)} out of 130`}
+      >
         {/* rotate(135°) points the arc's gap straight down */}
         <g transform="rotate(135 100 100)">
           <circle
@@ -500,7 +507,7 @@ function Gauge({ score }: { score: number }) {
       </svg>
       <div className={styles.gaugeCenter}>
         <span className={styles.gaugeScore} style={{ color }}>
-          {score}
+          {displayScore(score)}
         </span>
         <span className={styles.gaugeOutOf}>focus score</span>
       </div>
@@ -652,16 +659,19 @@ function TrendCard({ trend }: { trend: Trend | null }) {
     );
   }
 
-  const delta = Math.round(trend.delta);
+  // Both weeks on the /130 display scale; the "points" delta is the difference
+  // of the two DISPLAYED numbers (see trendDisplay) so the on-screen arithmetic
+  // is self-consistent. Extracted/pure so the near-flat rounding is unit-tested.
+  const { thisWeek, lastWeek, delta } = trendDisplay(trend);
   return (
     <section className={styles.card}>
       <h2 className={styles.sectionTitle}>This week vs last</h2>
       <p className={styles.bigStat}>
-        {Math.round(trend.thisWeek)}
+        {thisWeek}
         <span>avg score this week</span>
       </p>
       <p className={styles.muted}>
-        Last week {Math.round(trend.lastWeek)} ·{' '}
+        Last week {lastWeek} ·{' '}
         {delta === 0 ? (
           <span>holding steady</span>
         ) : delta > 0 ? (

@@ -36,6 +36,10 @@ import {
   weekOverWeekTrend,
 } from '../../../lib/scoring';
 import { addDays, isWorkingDay } from '../../../lib/scoring/date-utils';
+// Display helpers (Batch D): the agent popover's score is shaped HERE,
+// server-side, because the Electron agent can't import web code — so the ×1.3
+// displayScore is applied once (shared with the web render) before the wire.
+import { displayScore, scoreMessage } from './format';
 
 /** Days we emit scores for (ending on `today`) — what streak and trend can see. */
 export const SCORED_WINDOW_DAYS = 92;
@@ -265,5 +269,45 @@ export function computeDashboard(
     agent: { lastActivityAt },
     // Same summaries + scoredDays the per-day payload used — no extra query.
     week: computeWeekSummary(summaries, scoredDays, schedule, today),
+  };
+}
+
+/**
+ * What GET /api/agent/today returns to the tray popover (4h + Batch D). The
+ * Electron agent renders this verbatim — no scoring or rescaling agent-side.
+ *
+ * `score` is the RAW 0–100 value, sent so the popover can color/arc off raw
+ * (those key on raw, like the web). `displayScore` is the /130 number to SHOW —
+ * applied HERE via the shared displayScore, so web and tray show the same number
+ * for the same raw score. `isWorkingDay` drives the popover's non-working-day
+ * suppression, mirroring the web daily view's "Not a working day" state.
+ */
+export interface AgentTodayPayload {
+  date: string;
+  score: number | null;
+  displayScore: number | null;
+  message: string | null;
+  isWorkingDay: boolean;
+  lastActivityAt: string | null;
+}
+
+export function buildAgentTodayPayload(
+  summaries: DailySummary[],
+  schedule: WorkSchedule,
+  date: string,
+  lastActivityAt: string | null,
+): AgentTodayPayload {
+  const working = isWorkingDay(date, schedule);
+  const todaySummary = summaries.find((s) => s.date === date) ?? null;
+  // No score on a non-working day — a score there reads as judgment for a day
+  // that shouldn't be judged (same suppression as the web daily view).
+  const focus = working && todaySummary ? scoreDay(todaySummary, summaries, schedule) : null;
+  return {
+    date,
+    score: focus ? focus.score : null,
+    displayScore: focus ? displayScore(focus.score) : null,
+    message: focus ? scoreMessage(focus.score) : null,
+    isWorkingDay: working,
+    lastActivityAt,
   };
 }

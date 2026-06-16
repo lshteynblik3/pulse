@@ -31,8 +31,13 @@ type FlushState = { lastFlushAt: number | null };
 /** Server-computed; the renderer only displays it. Null = nothing cached yet. */
 type TodayScore = {
   date: string;
+  /** RAW 0–100 score (popover colors/arcs off this); null = no data / day off. */
   score: number | null;
+  /** The /130 number to SHOW (server-applied displayScore); null when score is. */
+  displayScore: number | null;
   message: string | null;
+  /** false → popover shows a calm "Not a working day" state, no score. */
+  isWorkingDay: boolean;
   lastActivityAt: string | null;
   fetchedAt: number;
 } | null;

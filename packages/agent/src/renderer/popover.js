@@ -71,9 +71,24 @@ function renderScore() {
   // while the refresh (fired on every open) catches up.
   const current = today && today.date === localToday() ? today : null;
 
-  if (current && current.score !== null) {
+  if (current && current.isWorkingDay === false) {
+    // Non-working day: no score (mirrors the web daily view). A calm note, never
+    // a zero. Color/arc cleared; the activity isn't judged here.
+    scoreEl.textContent = '–';
+    scoreEl.style.color = '#6f6b7a';
+    scoreLabelEl.textContent = 'day off';
+    gaugeValueEl.setAttribute('stroke-dasharray', `0 ${GAUGE_C}`);
+    coachEl.className = 'coach empty';
+    coachEl.textContent = 'Not a working day — rest counts too.';
+    pillScoreEl.textContent = '–';
+    pillScoreEl.style.color = '#94a3b8';
+  } else if (current && current.score !== null) {
+    // Color + arc key off the RAW score (raw/100 == displayScore/130); the NUMBER
+    // shown is the server-applied /130 displayScore (Batch D). One scale, two
+    // surfaces — the agent never multiplies.
     const color = scoreColor(current.score);
-    scoreEl.textContent = String(current.score);
+    const shown = current.displayScore !== null ? current.displayScore : current.score;
+    scoreEl.textContent = String(shown);
     scoreEl.style.color = color;
     scoreLabelEl.textContent = 'focus score';
     gaugeValueEl.setAttribute('stroke', color);
@@ -82,7 +97,7 @@ function renderScore() {
     coachEl.textContent = current.message || '';
     coachEl.className = 'coach';
     // The pill mirrors the same number, with a chip-tuned band color (Unit 2).
-    pillScoreEl.textContent = String(current.score);
+    pillScoreEl.textContent = String(shown);
     pillScoreEl.style.color = pillScoreColor(current.score);
   } else {
     scoreEl.textContent = '–';

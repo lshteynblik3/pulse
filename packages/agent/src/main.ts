@@ -651,13 +651,17 @@ async function refreshTodayScore(): Promise<void> {
     const body = (await res.json()) as {
       date?: unknown;
       score?: unknown;
+      displayScore?: unknown;
       message?: unknown;
+      isWorkingDay?: unknown;
       lastActivityAt?: unknown;
     };
     if (
       typeof body.date !== 'string' ||
       (body.score !== null && typeof body.score !== 'number') ||
+      (body.displayScore !== null && typeof body.displayScore !== 'number') ||
       (body.message !== null && typeof body.message !== 'string') ||
+      typeof body.isWorkingDay !== 'boolean' ||
       (body.lastActivityAt !== null && typeof body.lastActivityAt !== 'string')
     ) {
       throw new Error('agent/today response was malformed');
@@ -665,7 +669,9 @@ async function refreshTodayScore(): Promise<void> {
     todayScore = {
       date: body.date,
       score: body.score as number | null,
+      displayScore: body.displayScore as number | null,
       message: body.message as string | null,
+      isWorkingDay: body.isWorkingDay,
       lastActivityAt: body.lastActivityAt as string | null,
       fetchedAt: Date.now(),
     };
