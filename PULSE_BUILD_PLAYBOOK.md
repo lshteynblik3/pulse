@@ -250,6 +250,54 @@ focus-score formula and any assumptions before implementing.
   professional icon. Fold into the Phase 4 polish pass.
 - Streak UX: show endReason ("ended Tuesday — no data") rather than 
   silent reset.
+### Companion widget (Phase 4i)
+
+- The 4h popover is now a PERSISTENT companion, not a transient menu.
+  Two dismiss/restore paths only: × button (hidePopover IPC) and tray
+  toggle. Every INVOLUNTARY dismiss path was deliberately removed —
+  blur-dismiss (base 4i) and Esc-dismiss (popover.js, removed during
+  cleanup with an explanatory comment). A screenshot tool emitting Esc
+  on teardown was hiding the widget post-capture; that's why Esc-dismiss
+  is gone and must not be re-added. The window is demonstrably
+  capturable (no setContentProtection anywhere).
+- WidgetStateStore (widget-state.ts, mirrors ScoreCache): persists
+  {x, y, pinned, compact} in widget-state.json, atomic tmp+rename,
+  validator clears corrupt files. `compact` is OPTIONAL and
+  backward-compatible — pre-4i files without it load as not-compact.
+- Position clamp: clampWidgetIntoView runs against the window's LIVE
+  getBounds() at every show AND on every card↔pill resize — never a
+  constant, because the frameless-transparent window reports ~345px not
+  the 340 constant (invisible DWM border). All clamp coords are
+  Math.round'd to whole integers before setBounds (fractional pixels
+  render the score blurry).
+- Compact mode (card ↔ pill) is PURELY presentational — the tracking
+  path (poll → powerMonitor/active-win → sendSummary) reads no window or
+  display state, so compact/hidden/full never affects idle/focus
+  detection, the flush cycle, or DailySummary. The refresh timer pauses
+  while hidden (score only moves on the 15-min flush or another device
+  posting); tracking does not.
+- Pill chip: solid slate-900 (~90% opaque), 1px rgba(255,255,255,0.22)
+  border (reads on light AND dark backgrounds), no backdrop-filter, no
+  text-shadow. Score keeps band colors but the slate band (<40) remaps
+  to light slate (#cbd5e1) so a low-score day isn't slate-on-slate.
+- Launch shows ONLY the widget. The Transparency panel no longer
+  auto-creates at startup (removed the createWindow() call in
+  app.whenReady()); it's lazily created on the first show-panel footer
+  click. show-panel no longer calls popover?.hide() — opening the panel
+  does NOT dismiss the persistent widget. The panel stays the privacy
+  surface, one obvious click away.
+- Unknown-apps classify nudge: count comes from the classifier's local
+  unknownQueue (apps past the 10-min unknown threshold), broadcast to the
+  widget as classify-nudge {count} — a COUNT ONLY, never app names. The
+  nudge opens the existing Transparency-panel classify UI. Classifying
+  writes via setOverride → user-overrides.json (userData, writable in
+  production), applies live on the next poll, NO restart. categories.json
+  is the read-only app-bundle seed (inside the asar when packaged) — never
+  a runtime write target. No server call, no new API route, no
+  DailySummary change — unclassified app names never leave the machine.
+- Service-role surface UNCHANGED this phase: 4i reuses 4h's
+  GET /api/agent/today and adds no new server-side surface. The six-entry
+  list in the Pairing section still stands.
 
 **Guiding principles for this phase:** build for one user first; clear conventional UI;
 protect every data route by the authenticated user.
@@ -287,6 +335,8 @@ coaching insights.
 
 **Guiding principles for this phase:** no LLM in the free path; cost discipline (batch +
 cache + Haiku for routine insights); parse AI output defensively.
+
+
 
 **Prompt**
 ```
