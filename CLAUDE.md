@@ -325,9 +325,18 @@ surveillance — that shapes the architecture.
 
 ## Pre-Phase-5 gates (do before the Phase 5 cron goes live)
 
-- Paid-gate mechanism does not exist yet. Phase 5 is paid-only AI insights, but
-  billing proper is Phase 8 — Phase 5 needs at least a stub paid flag, or free
-  users incur Anthropic API cost.
+- Paid-gate mechanism: a DELIBERATE MANUAL STUB now exists — `users.is_paid`
+  (boolean not null default false), migration 0009. It is a flag the operator
+  flips by hand in SQL / service-role to mark a paying account; Phase 5's cron
+  gates paid API calls on it so free users never incur Anthropic cost. This is
+  NOT billing — Phase 8 replaces it with Stripe subscription state. RLS keeps it
+  member-unwritable WITHOUT a new policy: the 0008 update-own policy is
+  column-agnostic (gates rows, not columns); the COLUMN GRANT is what gates
+  writes, and authenticated is granted UPDATE on `display_name` only — a column
+  added by ALTER TABLE is auto-granted to no one. FAILURE MODE TO GUARD: column
+  grants on the `users` table are an ALLOWLIST, not a denylist — a later blanket
+  `grant update on users to authenticated` would SILENTLY re-expose is_paid (and
+  every future column). Keep `users` grants explicit/per-column forever.
 - Anthropic API cost-control setup — batch API + prompt caching + Haiku, per the
   playbook's Phase 5 guidance.
 

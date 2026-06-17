@@ -1,0 +1,27 @@
+-- Pulse — Phase 5 (pre-cron gate), migration 0009: the `is_paid` paid flag.
+-- Apply in the Supabase SQL editor AFTER 0008_users_update_display_name.sql.
+--
+-- DELIBERATE MANUAL STUB. Phase 5 ships paid-only AI insights via a Vercel Cron
+-- job; billing proper is Phase 8. Until then, is_paid is a boolean the operator
+-- flips by hand in SQL (or service-role) to mark a paying account, so the cron
+-- can gate paid API calls and free users never incur Anthropic cost. Phase 8
+-- replaces this with Stripe subscription state.
+--
+-- SECURITY — why this needs NO policy and NO grant:
+--   The users table already runs RLS with a select-own policy (0001) and an
+--   update-own policy (0008). That UPDATE policy is COLUMN-AGNOSTIC — it gates
+--   which ROWS authenticated may touch, not which columns. What gates the
+--   COLUMNS is the grant: 0008 did `revoke update on users from authenticated;
+--   grant update (display_name) on users to authenticated;`. A column added by
+--   ALTER TABLE is NOT auto-granted to anyone, so authenticated can write
+--   display_name and nothing else. is_paid is therefore unwritable by members
+--   the moment it exists — only service-role / manual SQL can set it.
+--
+--   Column grants on this table are an ALLOWLIST, not a denylist: do NOT add a
+--   blanket `grant update on users to authenticated` later — it would silently
+--   re-expose is_paid (and every future column). Keep the grants explicit.
+--
+-- Idempotent: `if not exists` so a re-paste during manual application is a no-op,
+-- not an error.
+
+alter table users add column if not exists is_paid boolean not null default false;
