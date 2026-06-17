@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import type { DailySummary } from '@pulse/shared';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { authenticateDevice } from '@/lib/devices/auth';
 
 // zod schema mirroring the DailySummary contract from @pulse/shared. This is now
 // the ONLY shape the server accepts — raw ActivityEvents never reach it
@@ -13,6 +14,7 @@ const categoryBreakdownSchema = z.object({
   creative: z.number().nonnegative(),
   admin: z.number().nonnegative(),
   browser: z.number().nonnegative(),
+  entertainment: z.number().nonnegative(),
   other: z.number().nonnegative(),
 });
 
@@ -39,7 +41,14 @@ type _SchemaMatchesContract = z.infer<typeof dailySummarySchema> extends DailySu
 const _check: _SchemaMatchesContract = true;
 void _check;
 
+// Device-token auth (Phase 4b) lives in lib/devices/auth.ts — one shared
+// mechanism for every device-authenticated route (this one and /api/me).
 export async function POST(request: Request) {
+  const device = await authenticateDevice(request);
+  if (!device) {
+    return NextResponse.json({ error: 'Invalid or missing device token.' }, { status: 401 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -59,8 +68,14 @@ export async function POST(request: Request) {
 
   // Full upsert of the day's summary, keyed by (user_id, date). Re-sends every
   // ~15 min overwrite this row with the latest cumulative totals — never deltas.
+  //
+  // user_id comes from the BEARER TOKEN, never the body — whatever the agent put
+  // in summary.userId (historically its device UUID) is discarded here. And the
+  // body's date is accepted as-is, deliberately: the agent's recovery-flush path
+  // legitimately sends prior days, so there must be no "is it today" check — the
+  // agent is the source of truth for which local day its data belongs to.
   const row = {
-    user_id: s.userId,
+    user_id: device.userId,
     date: s.date,
     active_minutes: s.activeMinutes,
     focus_minutes: s.focusMinutes,
@@ -81,6 +96,14 @@ export async function POST(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  // Bump last_used_at only after a successful authenticated write, so the
+  // /settings/devices "last used" column reflects real ingests, not attempts.
+  // Best-effort: a failure here must not fail the flush the agent already made.
+  await getSupabaseAdmin()
+    .from('device_tokens')
+    .update({ last_used_at: new Date().toISOString() })
+    .eq('id', device.deviceTokenId);
 
   return NextResponse.json({ ok: true, date: s.date }, { status: 200 });
 }

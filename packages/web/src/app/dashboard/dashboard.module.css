@@ -1,0 +1,531 @@
+/*
+ * /dashboard — the app's first stylesheet, and the pattern the settings pages
+ * migrate toward later (they stay inline for now). Direction: "calm coach" —
+ * warm paper-like light ground, one purple accent (#6d4fe5, the app's existing
+ * accent), a serif display face (--font-display, set by the page shell) for
+ * the big numerals, generous spacing. No red anywhere on this page.
+ */
+
+.page {
+  min-height: 100vh;
+  padding: 40px 24px 72px;
+  background:
+    radial-gradient(1100px 520px at 85% -10%, rgba(109, 79, 229, 0.07), transparent 60%),
+    #faf9f6;
+  color: #211f2a;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.shell {
+  max-width: 880px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* One staggered load reveal — sections rise in, top to bottom. */
+.shell > * {
+  animation: rise 420ms ease both;
+}
+.shell > *:nth-child(2) { animation-delay: 50ms; }
+.shell > *:nth-child(3) { animation-delay: 100ms; }
+.shell > *:nth-child(4) { animation-delay: 150ms; }
+.shell > *:nth-child(5) { animation-delay: 200ms; }
+.shell > *:nth-child(6) { animation-delay: 250ms; }
+.shell > *:nth-child(7) { animation-delay: 300ms; }
+.shell > *:nth-child(8) { animation-delay: 350ms; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---- Top bar: signed-in identity + settings links (Phase 4f) ---- */
+
+.topBar {
+  max-width: 880px;
+  margin: 0 auto 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+}
+.identity {
+  color: #6f6b7a;
+}
+.topLinks {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.topLinks a {
+  color: #533bc4;
+  font-weight: 600;
+  text-decoration: none;
+}
+.topLinks a:hover {
+  text-decoration: underline;
+}
+.logoutForm {
+  display: inline;
+}
+/* A link-styled button so "Log out" sits inline with the Settings link. */
+.logout {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #533bc4;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.logout:hover {
+  text-decoration: underline;
+}
+
+.kicker {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6d4fe5;
+}
+
+.dateHeading {
+  margin: 2px 0 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* "Agent last posted X ago" — present but quiet, axis-label gray. */
+.lastActivity {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #9b97a6;
+}
+
+/* "Updated X ago" autorefresh freshness — quieter still than lastActivity. */
+.freshness {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #b3afbb;
+}
+
+/* "Today" / "Yesterday" / "3 days ago" tag beside the date heading (Batch C). */
+.dayTag {
+  margin-left: 12px;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #6d4fe5;
+  vertical-align: 3px;
+}
+
+/* ---- Date nav + Day/Week toggle (Batch C) ---- */
+
+.controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dateNav {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.navArrow {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e3dfd7;
+  border-radius: 8px;
+  background: #fff;
+  color: #533bc4;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.navArrow:hover:not(:disabled) {
+  border-color: #6d4fe5;
+  background: #f7f4ff;
+}
+.navArrow:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.datePicker {
+  padding: 6px 10px;
+  border: 1px solid #e3dfd7;
+  border-radius: 8px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  color: #211f2a;
+}
+.todayBtn {
+  margin-left: 4px;
+  padding: 7px 14px;
+  border: 1px solid #6d4fe5;
+  border-radius: 8px;
+  background: #6d4fe5;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.todayBtn:hover {
+  background: #5b3fd0;
+}
+.viewToggle {
+  display: inline-flex;
+  border: 1px solid #e3dfd7;
+  border-radius: 999px;
+  background: #fff;
+  padding: 3px;
+}
+.viewToggle button {
+  border: none;
+  background: none;
+  padding: 6px 18px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #6f6b7a;
+  cursor: pointer;
+}
+.viewActive {
+  background: #efeafd !important;
+  color: #3f2e99 !important;
+}
+
+/* ---- Week view (Batch C) ---- */
+
+.weekHero {
+  text-align: center;
+}
+.weekScoreWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.weekScore {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 60px;
+  font-weight: 600;
+  line-height: 1;
+}
+/* The "X of Y working days tracked" honesty line — prominent under the score. */
+.weekTracked {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #533bc4;
+}
+/* Best-day callout: a warm celebration panel, never an alarm. */
+.bestDay {
+  background: linear-gradient(135deg, #ffffff, #f3fbf5);
+  border-color: #d7ecdd;
+}
+
+/* ---- Non-working day: stubbed "Mark as working day" (display only) ---- */
+
+.stubRow {
+  margin-top: 14px;
+}
+/* Deliberately disabled — a placeholder for the future per-date override phase. */
+.stubButton {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px dashed #d8d4cb;
+  border-radius: 8px;
+  background: #faf9f6;
+  color: #6f6b7a;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: not-allowed;
+}
+.stubNote {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #b3afbb;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e9e5dd;
+  border-radius: 14px;
+  padding: 22px 24px;
+  box-shadow: 0 1px 2px rgba(33, 31, 42, 0.04);
+}
+
+.sectionTitle {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6f6b7a;
+}
+
+.muted {
+  margin: 0;
+  color: #6f6b7a;
+}
+
+/* Default-schedule banner — same family as the work-schedule page's banner. */
+.banner {
+  margin: 0;
+  padding: 10px 14px;
+  background: #f4f1fc;
+  border: 1px solid #d9d0f5;
+  border-radius: 10px;
+  color: #444;
+}
+.banner a {
+  color: #533bc4;
+  font-weight: 600;
+}
+
+/* ---- Focus hero: gauge + "why this score" ---- */
+
+.hero {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 28px;
+  align-items: center;
+}
+
+.gaugeWrap {
+  text-align: center;
+}
+
+.gauge {
+  position: relative;
+  width: 200px;
+  margin: 0 auto;
+}
+.gauge svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.gaugeValue {
+  transition: stroke-dasharray 600ms ease;
+}
+.gaugeCenter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.gaugeScore {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1;
+}
+.gaugeOutOf {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6f6b7a;
+}
+.scoreMessage {
+  margin: 6px 0 0;
+  font-weight: 500;
+}
+
+.breakdown ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.breakdownLabel {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+  margin-bottom: 4px;
+}
+.meter {
+  height: 8px;
+  border-radius: 4px;
+  background: #f0ede6;
+  overflow: hidden;
+}
+.meterFill {
+  height: 100%;
+  border-radius: 4px;
+  background: #6d4fe5;
+}
+
+/* ---- Stat cards ---- */
+
+.statGrid {
+  display: grid;
+  /* auto-fit so the row stays even whether 4 cards (Tasks hidden) or 5 show. */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.stat {
+  background: #fff;
+  border: 1px solid #e9e5dd;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 2px rgba(33, 31, 42, 0.04);
+}
+.statLabel {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6f6b7a;
+}
+.statValue {
+  margin: 4px 0 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.statDetail {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: #6f6b7a;
+}
+
+/* ---- Hourly chart ---- */
+
+.hourChart {
+  width: 100%;
+  height: auto;
+  margin-top: 4px;
+}
+.axisLabel {
+  font-size: 9px;
+  fill: #9b97a6;
+}
+
+/* ---- Peak hours chips ---- */
+
+.chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.chips li {
+  background: #efeafd;
+  border: 1px solid #ded3fa;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13.5px;
+  color: #3f2e99;
+}
+
+/* ---- Streak / trend pair ---- */
+
+.duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.bigStat {
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.bigStat span {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  color: #6f6b7a;
+  margin-left: 6px;
+}
+.deltaUp {
+  color: #1a7f37;
+  font-weight: 600;
+}
+.deltaDown {
+  /* A down week is information, not an alarm — slate, never red. */
+  color: #64748b;
+  font-weight: 600;
+}
+
+/* ---- Insights placeholder ---- */
+
+.insights {
+  background: linear-gradient(135deg, #ffffff, #f7f4ff);
+  border-style: dashed;
+}
+
+/* ---- Error / retry ---- */
+
+.retry {
+  padding: 8px 18px;
+  border: 1px solid #6d4fe5;
+  border-radius: 8px;
+  background: #6d4fe5;
+  color: #fff;
+  font-size: 14.5px;
+  cursor: pointer;
+}
+.retry:hover {
+  background: #5b3fd0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell > * {
+    animation: none;
+  }
+  .gaugeValue {
+    transition: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .page {
+    padding: 24px 16px 56px;
+  }
+  .dateHeading {
+    font-size: 28px;
+  }
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .statGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .duo {
+    grid-template-columns: 1fr;
+  }
+}

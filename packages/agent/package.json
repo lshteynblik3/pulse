@@ -7,7 +7,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc && electron .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@pulse/shared": "workspace:*",
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "vitest": "^2.1.9"
   }
 }

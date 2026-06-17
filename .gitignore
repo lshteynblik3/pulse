@@ -29,3 +29,7 @@ Thumbs.db
 
 # Claude Code machine-local state (per-machine, not project code)
 .claude/
+
+# Personal scratch notes (not repo artifacts) — exact files, not a blanket *.txt
+/to do list.txt
+/2026-06-15-151057-local-command-caveatcaveat-the-messages-below.txt

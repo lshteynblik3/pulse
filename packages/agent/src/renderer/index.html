@@ -23,6 +23,42 @@
       .never li { color: #b00020; }
       .toggle { margin-top: 18px; display: flex; align-items: center; gap: 8px; }
       .hint { color: #999; font-size: 11px; margin-top: 6px; }
+      .applist { list-style: none; padding: 0; margin: 6px 0 0; }
+      .app-row { padding: 7px 0; border-bottom: 1px solid #eee; }
+      .app-name { font-weight: 600; word-break: break-word; }
+      .app-row.unclassified .app-name { font-style: italic; color: #777; }
+      .pill {
+        display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 8px;
+        font-size: 10px; font-style: normal; font-weight: 600;
+        background: #fff3cd; color: #8a6100; vertical-align: 1px;
+      }
+      .app-meta { color: #888; font-size: 11px; margin: 1px 0 5px; }
+      .cat-btns { display: flex; flex-wrap: wrap; gap: 4px; }
+      .cat-btns button {
+        font-size: 11px; padding: 2px 7px; border: 1px solid #ccc; border-radius: 4px;
+        background: #fafafa; cursor: pointer; color: #333;
+      }
+      .cat-btns button:hover { background: #efeaff; border-color: #6d4fe5; }
+      .cat-btns button.active { background: #6d4fe5; border-color: #6d4fe5; color: #fff; }
+      .flush { margin-top: 16px; }
+      .flush button {
+        font-size: 13px; padding: 5px 14px; border: 1px solid #6d4fe5; border-radius: 5px;
+        background: #6d4fe5; color: #fff; cursor: pointer;
+      }
+      .flush button:disabled { opacity: 0.5; cursor: default; }
+      .flush-last { color: #888; font-size: 11px; margin-top: 5px; }
+      .flush-msg { font-size: 11px; margin-top: 4px; }
+      .flush-msg.ok { color: #2e7d32; }
+      .flush-msg.err { color: #b00020; }
+      .flush-msg.info { color: #666; }
+      .banner { background: #fff4e5; border: 1px solid #f0c36d; border-radius: 4px; padding: 8px 10px; margin-bottom: 8px; }
+      .pair-row { display: flex; gap: 6px; margin-top: 8px; }
+      .pair-row input { flex: 1; min-width: 0; font-size: 13px; padding: 4px 6px; }
+      #pair-code { font-family: ui-monospace, monospace; letter-spacing: 0.12em; text-transform: uppercase; }
+      button { font-size: 12px; padding: 4px 10px; }
+      .pair-ok { color: #1b7e3c; }
+      .pair-error { color: #b00020; }
+      .linkish { background: none; border: none; color: #555; text-decoration: underline; cursor: pointer; padding: 0; font-size: 11px; }
     </style>
   </head>
   <body>
@@ -38,6 +74,48 @@
     <div class="hint" id="paused-hint" style="display: none">
       Tracking is paused. Nothing is being captured.
     </div>
+
+    <h2>Device pairing</h2>
+    <div id="pair-paired" style="display: none">
+      Paired as <strong id="pair-label"></strong>
+      <span class="hint">— summaries are being sent to your account.</span>
+      <div id="pair-account" class="hint"></div>
+      <div><button class="linkish" id="unpair-btn">Unpair this device (local only)</button></div>
+    </div>
+    <div id="pair-unpaired" style="display: none">
+      <div class="banner">
+        <strong>Not paired</strong> — sign in on the web and pair this device.
+        Tracking still runs locally; nothing is sent until you pair.
+      </div>
+      <button id="open-pairing-page">Open the pairing page</button>
+      <div class="pair-row">
+        <input id="pair-code" maxlength="8" placeholder="I have a code" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="pair-row">
+        <input id="pair-device-label" placeholder="Device name" autocomplete="off" />
+        <button id="pair-btn">Pair</button>
+      </div>
+      <div class="hint" id="pair-result"></div>
+    </div>
+
+    <div class="flush">
+      <button id="flush-btn" type="button">Flush now</button>
+      <div class="flush-last" id="flush-last">Last flushed: never</div>
+      <div class="flush-msg" id="flush-msg"></div>
+    </div>
+
+    <h2>We don't recognize these apps — what are they?</h2>
+    <div class="hint" id="unknown-empty">
+      Nothing unrecognized yet. An app we can't place shows up here once you've
+      used it for about 10 minutes in a day. Until then it's treated as neutral —
+      it never counts against your focus score.
+    </div>
+    <ul class="applist" id="unknown-list"></ul>
+
+    <h2>Recently tracked apps</h2>
+    <div class="hint" id="seen-empty">No apps tracked yet today.</div>
+    <ul class="applist" id="seen-list"></ul>
+    <div class="hint">Tap a category to reclassify. Your choice is saved and wins over the built-in list.</div>
 
     <h2>What Pulse collects</h2>
     <ul>

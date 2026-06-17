@@ -17,7 +17,7 @@
 // The scoring contract (Phase 3): WorkSchedule, the function return types, and
 // ScoredDay. Kept in a sibling file but re-exported here so consumers import
 // everything from "@pulse/shared".
-export * from './scoring';
+export * from './scoring.js';
 
 /**
  * The fixed set of buckets every tracked application is classified into.
@@ -29,6 +29,12 @@ export * from './scoring';
  * `'development'`, `'communication'`, and `'creative'` are generally treated as
  * "productive" categories for focus-block detection; the exact policy lives in
  * the agent / scoring engine, not in this type.
+ *
+ * `'entertainment'` (games, music, streaming) is a *known, deliberately
+ * non-productive* bucket — distinct from `'other'` so a game isn't conflated
+ * with an unrecognized internal tool. The agent has an internal-only
+ * `'unknown'` state (never transmitted) for the genuinely-unclassified tail;
+ * it is intentionally NOT part of this contract.
  */
 export type Category =
   | 'development'
@@ -36,6 +42,7 @@ export type Category =
   | 'creative'
   | 'admin'
   | 'browser'
+  | 'entertainment'
   | 'other';
 
 /**

@@ -27,6 +27,41 @@ import { addDays, isWorkingDay } from './date-utils';
 
 const DAYS_PER_WEEK = 7;
 
+/**
+ * Average focus score over WORKING DAYS THAT HAVE DATA in the day-offset window
+ * [endDate-endOffset, endDate-startOffset] (both offsets count backward from
+ * endDate). Non-working days (weekend/vacation) are excluded entirely; a working
+ * day with no scored entry is excluded too — NOT counted as a zero (the same
+ * missing-data contract as streak.ts). Returns the average (null when no
+ * qualifying day) AND the count of qualifying days, so a caller can show
+ * "averaged over N days".
+ *
+ * This is THE single source of truth for that average: the week-over-week trend
+ * and the dashboard's week summary both call it, so the two can never drift.
+ */
+export function averageScoreOverWorkingDays(
+  scoredDays: ScoredDay[],
+  endDate: string,
+  startOffset: number,
+  endOffset: number,
+  schedule: WorkSchedule = DEFAULT_SCHEDULE,
+): { average: number | null; count: number } {
+  const scoreByDate = new Map<string, number>();
+  for (const day of scoredDays) scoreByDate.set(day.date, day.score);
+
+  let sum = 0;
+  let n = 0;
+  for (let offset = startOffset; offset <= endOffset; offset++) {
+    const date = addDays(endDate, -offset);
+    if (!isWorkingDay(date, schedule)) continue;
+    const score = scoreByDate.get(date);
+    if (score === undefined) continue;
+    sum += score;
+    n++;
+  }
+  return { average: n === 0 ? null : sum / n, count: n };
+}
+
 export function weekOverWeekTrend(
   scoredDays: ScoredDay[],
   today: string,
@@ -34,26 +69,14 @@ export function weekOverWeekTrend(
 ): Trend | null {
   if (scoredDays.length === 0) return null;
 
-  const scoreByDate = new Map<string, number>();
-  for (const day of scoredDays) scoreByDate.set(day.date, day.score);
-
-  // Average focus score over working days WITH DATA in [today-endOffset, today-startOffset].
-  const windowAverage = (startOffset: number, endOffset: number): number | null => {
-    let sum = 0;
-    let n = 0;
-    for (let offset = startOffset; offset <= endOffset; offset++) {
-      const date = addDays(today, -offset);
-      if (!isWorkingDay(date, schedule)) continue;
-      const score = scoreByDate.get(date);
-      if (score === undefined) continue;
-      sum += score;
-      n++;
-    }
-    return n === 0 ? null : sum / n;
-  };
-
-  const thisWeek = windowAverage(0, DAYS_PER_WEEK - 1);
-  const lastWeek = windowAverage(DAYS_PER_WEEK, DAYS_PER_WEEK * 2 - 1);
+  const thisWeek = averageScoreOverWorkingDays(scoredDays, today, 0, DAYS_PER_WEEK - 1, schedule).average;
+  const lastWeek = averageScoreOverWorkingDays(
+    scoredDays,
+    today,
+    DAYS_PER_WEEK,
+    DAYS_PER_WEEK * 2 - 1,
+    schedule,
+  ).average;
 
   // No comparison if a window is empty, or last week is 0 (can't divide).
   if (thisWeek === null || lastWeek === null || lastWeek === 0) return null;

@@ -13,6 +13,20 @@
  */
 
 /**
+ * A recurring break inside a working day, in the user's LOCAL clock time
+ * (never UTC). Times are zero-padded "HH:MM", so lexicographic comparison is
+ * also chronological comparison.
+ */
+export interface WorkBreak {
+  /** Optional display label, e.g. "Lunch". */
+  label?: string;
+  /** Start of the break, "HH:MM" (00:00–23:59). */
+  start: string;
+  /** End of the break, "HH:MM". Always after {@link start}. */
+  end: string;
+}
+
+/**
  * A user's working pattern, threaded through the scoring engine so "showing up"
  * and "consistency" are judged against the days the user actually works — not a
  * hardcoded Mon–Fri assumption.
@@ -39,6 +53,14 @@ export interface WorkSchedule {
    * peak hours, and skipped (neither counted nor broken) by the streak walk.
    */
   vacationDates: string[];
+
+  /**
+   * Recurring daily breaks (Phase 4c). Persisted by the settings UI; the
+   * current scoring formula does not read them yet — carried for later phases
+   * (e.g. excluding lunch from expected hours). Optional so every existing
+   * schedule value, including {@link DEFAULT_SCHEDULE}, stays valid unchanged.
+   */
+  breaks?: WorkBreak[];
 }
 
 /**

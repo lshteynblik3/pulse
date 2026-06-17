@@ -1,5 +1,24 @@
 # CLAUDE.md
-CURRENT PHASE: Phase 3 done. Beginning Phase 4 — employee dashboard + auth.
+CURRENT PHASE: 4h (styled tray popover) on branch
+phase-4h-tray-popover, stacked on phase-4g-settings. 4g is built
+and user-verified (migration 0008 applied). 4h replaces the agent's
+native tray menu with a frameless popover card: server-computed
+score via GET /api/agent/today, score-cache.json for instant open,
+flush/pause/identity/open-dashboard/quit moved into the card. Built;
+awaits the user's verification. phase-4h-tray-popover tip is now
+the full picture. Nothing merged to main yet — held until Phase 4
+fully closes. Don't start Phase 5; the embedded-dashboard auth
+bridge and the email+password/OAuth rework are their own later
+phases.
+
+BRANCH-TOPOLOGY CORRECTION (2026-06-11): this file used to claim
+the Phase-4 branches were stacked 4a → fix-categorization → 4b → …
+That was never true in git. phase-4b was built directly on Phase 3;
+4a's auth was lifted in VERBATIM as commit a373106 (not a merge),
+and fix-categorization was never merged into the 4b→4c→4d→4e
+lineage at all — its agent work lived only on its own branch and
+the archive/integration-check tag until Phase 4f Stage 1 ported it
+(from that tag's settled resolutions) in commit 05c4959.
 
 Context for working on **Pulse**. Read this at the start of every session.
 Full detail lives in `SPEC.md` — read it before any architectural work.
@@ -52,15 +71,168 @@ surveillance — that shapes the architecture.
 - Validate every API input with zod before touching the database.
 - Secrets in env vars, never committed. Encrypt integration tokens at rest.
 - Small commits, one phase per branch. Explain non-obvious tradeoffs in the PR description.
+- **`shared` uses `moduleResolution: node16`** — relative imports there need explicit
+  `.js` extensions — **and Next needs `resolve.extensionAlias` in `next.config.mjs`
+  for any VALUE import of shared** (type-only imports are erased and never hit
+  webpack). The alias landed in 4c and got its first live exercise in 4d, when
+  /api/dashboard made `web/lib/scoring`'s `DEFAULT_SCHEDULE` value imports reachable —
+  `pnpm build:web` green confirmed it. Verified working; keep the alias.
+- `WorkSchedule` gained an optional `breaks` field in Phase 4c (a scoring type in
+  `shared`, NOT the DailySummary spine; the agent never sends it). Scoring does not
+  consume `breaks` yet — 4c persists them for a later phase. No `work_schedules` row
+  means "use `DEFAULT_SCHEDULE`"; UI and scoring share that one constant via
+  `getWorkSchedule`.
 - This user is solo and semi-technical: prefer clear, conventional code over clever
   abstractions. When you make a meaningful choice, say why in one sentence.
 
+### Pairing (Phase 4b)
+
+- Agent identity comes from the bearer token's `device_tokens` row, never from the
+  request body. `/api/ingest` must overwrite `summary.userId` with the authenticated
+  user_id before upsert.
+- `/api/ingest` accepts any `date` the agent claims — no "is it today" check, ever.
+  The recovery-flush path legitimately sends prior-day summaries.
+- The plaintext device token exists in exactly three places: the one-time
+  pair/consume response, the agent's process memory, and the agent's
+  safeStorage-encrypted `device-token.bin`. Never in a DB row, log line, or any
+  other response. Pairing-code values are never logged either, even on failures.
+- Service-role Supabase usage — THE most security-sensitive surface in the
+  repo; keep this list exhaustive and auditable. Every entry is pinned in app
+  code to one specific user (the pairing code's, the token's, or the session's
+  own); no service-role call ever takes a parameter naming another user:
+    1. /api/devices/pair/consume — pairing-code claim UPDATE + device_tokens
+       INSERT (no session exists at pairing time).
+    2. The shared device-token auth helper (`web/src/lib/devices/auth.ts`):
+       the token-hash lookup, used by every device-authenticated route below.
+    3. /api/ingest — daily_summaries upsert for the token's user.
+    4. /api/me — users email/display_name read for the token's user.
+    5. /api/agent/today (4h) — daily_summaries (31-day window) +
+       work_schedules reads for the token's user, feeding the popover's
+       server-computed score. No RLS path exists without the deferred
+       embedded-dashboard auth bridge.
+    6. /auth/callback — first-sign-in users-row provisioning upsert
+       (ignoreDuplicates: can never overwrite an edited profile).
+  Everything else runs on the user's session client under RLS.
+- Known issue (accepted, not solved in 4b): if a user pairs two devices, the
+  daily_summaries upsert is last-write-wins per (user_id, date) — one machine's
+  day overwrites the other's. Multi-device merging is a later phase.
+
+### Dashboard (Phases 4d–4e)
+
+- One consolidated `GET /api/dashboard?date=YYYY-MM-DD`, compute-on-read (no scores
+  table yet — persistence is a later phase with the cron). `date` is the CLIENT's
+  local day, computed in the browser from local Date components — the server never
+  derives "today" from its own clock, and nothing ever calls `toISOString()` for a
+  civil date. The payload type `DashboardPayload` lives in
+  `web/src/lib/dashboard/compute.ts` (web-internal), NOT in `shared`.
+- Windowing invariant (documented in compute.ts): fetch 122 days, score the most
+  recent 92, so every scored day gets a FULL trailing-30-day median, exclusive of
+  the day itself. Don't shrink the fetch window without re-deriving this.
+- Absence ≠ failure, end to end: zero rows → 200 with a clean empty payload → calm
+  "no data yet" UI. A DB/loader error → 500 → retryable error card. Never render
+  fake zeros, never let an error masquerade as an empty day.
+- Rounding/formatting is the UI's job only (`web/src/lib/dashboard/format.ts`); the
+  API passes scoring's raw values through (the integer `score` aside).
+- Coach tone is a product rule, not styling: no red anywhere on the dashboard, and
+  low scores read as supportive copy. Score-band copy and colors are unit-tested.
+- `/api/summary/today` was DELETED in 4d (it was unauthenticated, service-role, and
+  cross-user). The two-documented-sites service-role rule above still holds.
+- Styling: the dashboard's CSS module + next/font (Fraunces display face) is the
+  pattern the settings pages migrate TOWARD later — not an exception to undo.
+  Charts are hand-rolled SVG; reach for recharts only if date navigation or richer
+  charts arrive.
+
+### Identity & lineage (Phase 4f)
+
+- The `entertainment` Category member (a known, deliberately non-productive
+  bucket, distinct from `other`) now lives on this lineage — it came across in
+  the Stage 1 port with the rest of fix-categorization (three-layer classifier,
+  rolling-day persistence via day-store, Transparency-panel restart fix, manual
+  flush control). The agent's internal `unknown` state stays agent-only, never
+  transmitted.
+- GET /api/me is the agent's whoami: device-token auth via the shared helper,
+  returns only that token's own user's email/display name. The agent calls it
+  at `deviceAuth.metadata.serverUrl` on startup and after pairing; the email is
+  MEMORY-ONLY in the agent (PII — never written to disk; device.json stays
+  non-secret metadata). Tray + Transparency panel show "Paired as <email>";
+  the dashboard top bar shows the signed-in session's email. This exists
+  because an agent once posted to one account while the browser viewed
+  another, and neither UI could show it.
+- A whoami 401 only DISPLAYS "pairing invalid" — the ingest 401 path remains
+  the sole owner of wiping a dead credential.
+
+### Settings (Phase 4g)
+
+- ONE /settings page (account, devices, work schedule as anchored sections);
+  /settings/devices and /settings/work-schedule are redirects to its anchors.
+  The page uses settings.module.css in the 4e visual language — the sanctioned
+  migration off inline styles, not a new pattern.
+- /api/account (GET/PUT, session client): email read-only (the auth identity),
+  display_name editable. Defense-in-depth like work-schedule: zod .strict()
+  (a crafted email field is rejected, not ignored) at the app layer, and
+  migration 0008's UPDATE-own policy + display_name-ONLY column grant at the
+  DB layer (mirrors 0003's revoked_at pattern). The agent tray prefers
+  displayName over email once set. The future auth phase pre-fills this
+  section; it does not rework it.
+- Data-retention convention: revoked device_tokens rows are KEPT forever as an
+  audit trail (0003's design — created_at/last_used_at/revoked_at per
+  credential); /api/devices lists ACTIVE rows only. pairing_codes rows are
+  likewise lazy-expired by predicate, never swept.
+- "Last activity" = max(device_tokens.last_used_at) across the user's devices
+  (revoked included — past posts are real activity), supplied to
+  DashboardPayload.agent.lastActivityAt by the /api/dashboard route, shown as
+  a quiet relative-time line under the dashboard date heading and per-device
+  in settings. No agent involvement; ingest already bumps last_used_at.
+
+### Tray popover (Phase 4h)
+
+- The native tray context menu is GONE; tray click (left or right) toggles a
+  frameless, transparent, always-on-top popover (`popover.html`/`popover.js`),
+  built on the exact Transparency-panel pattern (same preload, contextBridge,
+  handlers-before-windows). Blur and Esc dismiss it; a 300ms reopen guard
+  stops the tray-click/blur fight. The Transparency panel stays its own window,
+  reachable from the popover's footer link.
+- THE SCORE IS SERVER-COMPUTED, full stop. GET /api/agent/today returns
+  { date, score|null, message|null, lastActivityAt } — score from scoreDay
+  (exported from compute.ts; lookback filtering lives there so no caller can
+  get the window wrong) and message from scoreMessage (format.ts): the SAME
+  band copy the dashboard renders, one source of truth. The agent passes
+  ?date= from its own local day (the agent is the client). score: null means
+  "no data that day" → the popover's calm empty state, never a fake zero.
+  Single-day scoring fetches 31 days (singleDayWindowStart), not the
+  dashboard's 122 — that invariant exists for scoring 92 days.
+- score-cache.json (sibling of current-day.json, deliberately NOT a
+  PersistedDay field — its validator rejects unknown-typed fields) caches the
+  last { score, message, fetchedAt } so the popover opens instantly and
+  refreshes behind a visible "updated X ago" hint. Cleared on unpair/401:
+  the score belonged to that pairing. Identity (email/name) stays memory-only;
+  a score number and a coach sentence are cacheable.
+- Renderer duplication boundary: COLORS (band → slate/purple/green) are
+  presentational and may be mirrored in popover.js; COPY and SCORES never are.
+
+## Known issues / debt
+
+- Phase 4b Tests 8 and 9 were verified by code inspection
+  rather than end-to-end testing. Test 8 (consume race
+  condition): the consume endpoint uses a single
+  UPDATE … WHERE consumed_at IS NULL AND expires_at > now()
+  RETURNING statement, which is race-safe by Postgres row
+  locking on a single statement — only one of two concurrent
+  consumes can match. Test 9 (cross-user authorization): API
+  routes enforce user_id = auth.uid() in both application
+  logic (requireUser + WHERE user_id = $authed_user) and in
+  RLS policies. End-to-end verification of test 9 was blocked
+  by Supabase free-tier email rate limits during testing
+  (3/hour magic links per email, hit during second-user
+  signup attempts); re-verify with a fresh email allowance
+  when convenient.
+
 ## Current phase
 
-Phase 1 — DONE. Thin vertical slice works end to end: Electron agent → `/api/ingest` →
-Supabase `raw_events` → `/dashboard`, on real data. Next up: Phase 2 (real agent —
-categorization, idle detection, focus blocks, local aggregation; stop sending raw events
-and send only `DailySummary`). Don't build features ahead of the current phase.
+See the CURRENT PHASE block at the top — that's the live one. Phases 1–3 are done
+and merged; all of Phase 4 is built on the stacked side branches awaiting the
+user's real-data check and merge. Don't build features ahead of the current phase
+(Phase 5 / AI insights has only a placeholder card in the dashboard).
 
 ## Commands
 

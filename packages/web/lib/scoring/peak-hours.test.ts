@@ -9,6 +9,7 @@ const ZERO_BREAKDOWN: Record<Category, number> = {
   creative: 0,
   admin: 0,
   browser: 0,
+  entertainment: 0,
   other: 0,
 };
 
