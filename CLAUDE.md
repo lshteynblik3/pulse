@@ -1,24 +1,33 @@
 # CLAUDE.md
-CURRENT PHASE: 4h (styled tray popover) on branch
-phase-4h-tray-popover, stacked on phase-4g-settings. 4g is built
-and user-verified (migration 0008 applied). 4h replaces the agent's
-native tray menu with a frameless popover card: server-computed
-score via GET /api/agent/today, score-cache.json for instant open,
-flush/pause/identity/open-dashboard/quit moved into the card. Built;
-awaits the user's verification. phase-4h-tray-popover tip is now
-the full picture. Nothing merged to main yet — held until Phase 4
-fully closes. Don't start Phase 5; the embedded-dashboard auth
-bridge and the email+password/OAuth rework are their own later
-phases.
+CURRENT PHASE: Phase 4 COMPLETE and merged to main via the --no-ff
+merge commit 9895b4a (2026-06-16). Everything below is now on main:
+the full Phase 4 employee dashboard + Supabase auth, the agent
+identity/pairing/settings/tray-popover/companion-widget work
+(4f–4i), and web batches A (dashboard quick wins), C (date
+navigation + week summary + non-working-day display), and D (score
+/130 display rescale + popover non-working-day fix).
 
-BRANCH-TOPOLOGY CORRECTION (2026-06-11): this file used to claim
-the Phase-4 branches were stacked 4a → fix-categorization → 4b → …
-That was never true in git. phase-4b was built directly on Phase 3;
-4a's auth was lifted in VERBATIM as commit a373106 (not a merge),
-and fix-categorization was never merged into the 4b→4c→4d→4e
-lineage at all — its agent work lived only on its own branch and
-the archive/integration-check tag until Phase 4f Stage 1 ported it
-(from that tag's settled resolutions) in commit 05c4959.
+Next up is Phase 5 (AI insights — Vercel Cron → Claude API), but it
+has NOT started — only a placeholder insights card exists in the
+dashboard. Before the Phase 5 cron goes live, two gates must clear
+(see "Pre-Phase-5 gates" below): a paid-flag mechanism (billing
+proper is Phase 8, so Phase 5 needs at least a stub paid flag or
+free users incur API cost) and Anthropic cost-control setup (batch
+API + prompt caching + Haiku). The embedded-dashboard auth bridge
+and the email+password/OAuth rework remain their own later phases.
+
+BRANCH-TOPOLOGY HISTORY (correction logged 2026-06-11; the stack
+landed on main via --no-ff merge 9895b4a on 2026-06-16). The
+Phase-4 lineage was NEVER the stacked 4a → fix-categorization → 4b
+→ … this file once claimed. In git: phase-4b was built directly on
+Phase 3; 4a's auth was lifted in VERBATIM as commit a373106 (not a
+merge); and fix-categorization was never merged into the
+4b→4c→4d→4e lineage at all — its agent work lived only on its own
+branch and the archive/integration-check tag (a dead-end) until
+Phase 4f Stage 1 ported it (from that tag's settled resolutions) in
+commit 05c4959. That spine — continued through 4f–4i and batches
+A/C/D on batch-d-score-display — is what merge 9895b4a brought to
+main as a unit.
 
 Context for working on **Pulse**. Read this at the start of every session.
 Full detail lives in `SPEC.md` — read it before any architectural work.
@@ -54,7 +63,7 @@ surveillance — that shapes the architecture.
 
 ```
 /agent    Electron desktop tracker
-/web      Next.js — /app (dashboard pages) + /app/api (ingest, summary, etc.)
+/web      Next.js — /app (dashboard pages) + /app/api (ingest, dashboard, agent/today, etc.)
 /shared   shared types: ActivityEvent, DailySummary, Category, scoring types
 ```
 
@@ -106,10 +115,15 @@ surveillance — that shapes the architecture.
        the token-hash lookup, used by every device-authenticated route below.
     3. /api/ingest — daily_summaries upsert for the token's user.
     4. /api/me — users email/display_name read for the token's user.
-    5. /api/agent/today (4h) — daily_summaries (31-day window) +
-       work_schedules reads for the token's user, feeding the popover's
-       server-computed score. No RLS path exists without the deferred
-       embedded-dashboard auth bridge.
+    5. /api/agent/today (4h) — THREE service-role reads for the
+       token's user, feeding the popover's server-computed score:
+       daily_summaries (31-day window), work_schedules, and
+       device_tokens.last_used_at (the popover's lastActivityAt).
+       All three pinned to device.userId. No RLS path exists without
+       the deferred embedded-dashboard auth bridge.
+       (NOTE: the route docstring + the Batch-D commit message still
+       say "2" reads — known doc drift, debt item (d); code is
+       correct and pinned.)
     6. /auth/callback — first-sign-in users-row provisioning upsert
        (ignoreDuplicates: can never overwrite an edited profile).
   Everything else runs on the user's session client under RLS.
@@ -136,7 +150,8 @@ surveillance — that shapes the architecture.
 - Coach tone is a product rule, not styling: no red anywhere on the dashboard, and
   low scores read as supportive copy. Score-band copy and colors are unit-tested.
 - `/api/summary/today` was DELETED in 4d (it was unauthenticated, service-role, and
-  cross-user). The two-documented-sites service-role rule above still holds.
+  cross-user). The six service-role sites enumerated above still hold — every one
+  pinned to an authenticated identity.
 - Styling: the dashboard's CSS module + next/font (Fraunces display face) is the
   pattern the settings pages migrate TOWARD later — not an exception to undo.
   Charts are hand-rolled SVG; reach for recharts only if date navigation or richer
@@ -210,6 +225,70 @@ surveillance — that shapes the architecture.
 - Renderer duplication boundary: COLORS (band → slate/purple/green) are
   presentational and may be mirrored in popover.js; COPY and SCORES never are.
 
+### Companion widget (Phase 4i)
+
+- The 4h popover is now a PERSISTENT, draggable companion, not a transient
+  menu. Only TWO dismiss/restore paths: the × button (hidePopover IPC) and the
+  tray toggle. Blur-dismiss AND Esc-dismiss were both deliberately removed — a
+  screenshot tool emitted Esc on teardown and hid the widget post-capture; do
+  NOT re-add either. The window is demonstrably capturable (no
+  setContentProtection anywhere).
+- WidgetStateStore (widget-state.ts, mirrors ScoreCache): persists
+  {x, y, pinned, compact} in widget-state.json, atomic tmp+rename, validator
+  clears corrupt files. `compact` is OPTIONAL/back-compatible — pre-4i files
+  without it load as not-compact.
+- clampWidgetIntoView runs against the window's LIVE getBounds() at every show
+  AND every card↔pill resize — never a constant, because the
+  frameless-transparent window reports ~345px not the 340 constant (invisible
+  DWM border). All clamp coords are Math.round'd before setBounds (fractional
+  pixels render the score blurry).
+- Compact mode (card ↔ pill) is PURELY presentational — the tracking path
+  (poll → powerMonitor/active-win → sendSummary) reads no window or display
+  state, so compact/hidden/full never affects idle/focus detection, the flush
+  cycle, or DailySummary. The refresh timer pauses while hidden; tracking does
+  not.
+- Pill chip: solid slate-900 (~90% opaque), 1px translucent white border, no
+  backdrop-filter/text-shadow. Score keeps band colors but the slate band (<40)
+  remaps to light slate (#cbd5e1) so a low-score day isn't slate-on-slate.
+- Launch shows ONLY the widget. The Transparency panel is lazily created on the
+  first show-panel footer click (no startup auto-create), and opening it does
+  NOT dismiss the widget.
+- Unknown-apps classify nudge: a COUNT ONLY (never app names), from the
+  classifier's local unknownQueue (apps past the 10-min unknown threshold),
+  broadcast as classify-nudge {count}. Classifying writes via setOverride →
+  user-overrides.json (userData, writable in production), applies live on the
+  next poll — NO restart. categories.json is the read-only app-bundle seed,
+  never a runtime write target. No server call, no new API route, no
+  DailySummary change — unclassified app names never leave the machine.
+- Service-role surface UNCHANGED this phase: 4i reuses 4h's GET /api/agent/today
+  and adds no new server-side surface.
+
+### Batch A — dashboard quick wins
+
+- Logout affordance; a SINGLE Settings nav entry (de-duped); dashboard 5-min
+  autorefresh that PAUSES when the tab/window is hidden and keeps the
+  currently-viewed date. SHOW_TASKS flag hides the always-zero tasks card — the
+  DailySummary `tasksCompleted` field is UNTOUCHED in the contract, reserved for
+  Phase 7 integrations (the flag hides UI, it does not change the spine).
+
+### Batch C — date navigation + week summary + non-working-day display
+
+- Date navigation: `?date=` query param, prev/next, a 365-day floor and a
+  today-cap (you can't navigate into the future).
+- Week summary: rolling-7, averaged over working-days-WITH-data, labelled
+  "X of Y tracked," computed via the shared averageScoreOverWorkingDays helper
+  so it can't drift from the trend calc.
+- Non-working-day daily view: NO score shown, activity still shown if present,
+  and "Mark as working day" is a STUB button — a coming-soon placeholder for a
+  future per-date schedule-override feature (see backlog (a)).
+
+### Batch D — score /130 display rescale
+
+- displayScore /130: single source in format.ts; the raw score is retained for
+  bands/streak/arc; clamped and rounded. Applied ROUTE-SIDE for the agent
+  (/api/agent/today) so the agent never multiplies — it just displays what the
+  server sends. The popover's non-working-day handling now matches the web view.
+
 ## Known issues / debt
 
 - Phase 4b Tests 8 and 9 were verified by code inspection
@@ -227,12 +306,37 @@ surveillance — that shapes the architecture.
   signup attempts); re-verify with a fresh email allowance
   when convenient.
 
+### Backlog / carried-forward debt (post-Phase-4)
+
+- (a) One-off working-day override + target hours — the REAL feature behind
+  Batch C's "Mark as working day" stub button. A per-date WorkSchedule-override
+  touching isWorkingDay's consumers; deferred to its own phase.
+- (b) Scoring display-curve tuning — displayScore is linear ×1.3 for now. If
+  "doable" days don't land near 100 once real days accumulate, it's a
+  one-function change in format.ts to a data-anchored curve.
+- (c) Dashboard perf / scores table — the dashboard is compute-on-read, scoring
+  ~92 days/request with no scores table. Fine at low data volume; revisit before
+  prod scale or as load grows. This was the dissolved "Batch B" — deliberately
+  resolved as a debt note, NEVER a branch, so no batch-b branch exists (its
+  absence is correct, not lost work).
+- (d) Doc drift — the /api/agent/today route docstring AND the Batch-D commit
+  message still undercount its service-role reads as 2 (it's 3 — see entry #5).
+  The code is correct and pinned; fix the docs opportunistically.
+
+## Pre-Phase-5 gates (do before the Phase 5 cron goes live)
+
+- Paid-gate mechanism does not exist yet. Phase 5 is paid-only AI insights, but
+  billing proper is Phase 8 — Phase 5 needs at least a stub paid flag, or free
+  users incur Anthropic API cost.
+- Anthropic API cost-control setup — batch API + prompt caching + Haiku, per the
+  playbook's Phase 5 guidance.
+
 ## Current phase
 
-See the CURRENT PHASE block at the top — that's the live one. Phases 1–3 are done
-and merged; all of Phase 4 is built on the stacked side branches awaiting the
-user's real-data check and merge. Don't build features ahead of the current phase
-(Phase 5 / AI insights has only a placeholder card in the dashboard).
+See the CURRENT PHASE block at the top — that's the live one. Phases 1–4 are done
+and merged to main (Phase 4 via merge 9895b4a). Phase 5 (AI insights) is next and
+has only a placeholder card in the dashboard — don't build features ahead of it,
+and clear the Pre-Phase-5 gates above before the cron goes live.
 
 ## Commands
 
