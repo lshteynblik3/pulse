@@ -49,8 +49,10 @@ export interface InsightContext {
   lastWeekAvg: number | null;
 }
 
-/** Format a 0–23 local hour as lowercase 12-hour am/pm (0 -> "12am", 14 -> "2pm"). */
-function formatHour(h: number): string {
+/** Format a 0–23 local hour as lowercase 12-hour am/pm (0 -> "12am", 14 -> "2pm").
+ *  Exported so the computed-tips fallback renders times identically (one source
+ *  of the am/pm format — no drift between the LLM input and the fallback). */
+export function formatHour(h: number): string {
   const period = h < 12 ? 'am' : 'pm';
   const hour12 = h % 12 === 0 ? 12 : h % 12;
   return `${hour12}${period}`;
