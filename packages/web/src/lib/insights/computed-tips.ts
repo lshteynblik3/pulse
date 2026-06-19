@@ -36,10 +36,12 @@ export interface ComputedTipsInput {
 
 /** Peak-window tip — only when there's real peak data to cite. */
 function peakWindowTip(peaks: PeakHour[]): Insight | null {
-  if (peaks.length === 0) return null;
-  const windows = peaks[1]
-    ? `${formatHour(peaks[0].hour)} and ${formatHour(peaks[1].hour)}`
-    : formatHour(peaks[0].hour);
+  const first = peaks[0];
+  if (!first) return null;
+  const second = peaks[1];
+  const windows = second
+    ? `${formatHour(first.hour)} and ${formatHour(second.hour)}`
+    : formatHour(first.hour);
   return {
     type: 'peak-window',
     title: 'Your sharpest hours',

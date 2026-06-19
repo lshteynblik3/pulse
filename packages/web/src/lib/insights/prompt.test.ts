@@ -119,8 +119,8 @@ describe('insightsSchema', () => {
   });
 
   it('rejects out-of-bounds counts (1 or 4 insights)', () => {
-    expect(insightsSchema.safeParse({ insights: [valid(2).insights[0]] }).success).toBe(false);
-    expect(insightsSchema.safeParse({ insights: valid(3).insights.concat(valid(2).insights[0]) }).success).toBe(false);
+    expect(insightsSchema.safeParse({ insights: valid(2).insights.slice(0, 1) }).success).toBe(false);
+    expect(insightsSchema.safeParse({ insights: valid(3).insights.concat(valid(3).insights) }).success).toBe(false);
   });
 
   it('rejects title/body length violations and unknown keys', () => {
