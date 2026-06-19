@@ -8,6 +8,7 @@ import {
   computeDashboard,
   fetchWindowStart,
 } from './compute';
+import { insightsSchema } from '../insights/schema';
 
 const TODAY = '2026-06-11';
 
@@ -64,6 +65,23 @@ describe('computeDashboard — empty state (absence, not failure)', () => {
     expect(payload.streak).toEqual({ count: 0, endedOn: null, endReason: 'no_history' });
     expect(payload.trend).toBeNull();
     expect(payload.schedule.isDefault).toBe(true);
+  });
+});
+
+describe('computeDashboard — insights (computed-tips fallback the route may override)', () => {
+  it('always includes 2–3 schema-valid computed tips, even with no data', () => {
+    const empty = computeDashboard([], ALL_DAYS, true, TODAY);
+    expect(insightsSchema.safeParse({ insights: empty.insights }).success).toBe(true);
+    expect(empty.insights.length).toBeGreaterThanOrEqual(2);
+
+    const withData = computeDashboard(
+      [makeSummary(TODAY, { activeMinutes: 300, focusMinutes: 220, meetingMinutes: 300, hourlyFocusMinutes: hourly(9, 60) })],
+      ALL_DAYS,
+      true,
+      TODAY,
+    );
+    expect(insightsSchema.safeParse({ insights: withData.insights }).success).toBe(true);
+    expect(withData.insights.length).toBeLessThanOrEqual(3);
   });
 });
 

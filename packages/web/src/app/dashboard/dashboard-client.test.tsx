@@ -31,6 +31,7 @@ function payloadFor(date: string): DashboardPayload {
       bestDay: null,
       peakHours: [],
     },
+    insights: [],
   };
 }
 

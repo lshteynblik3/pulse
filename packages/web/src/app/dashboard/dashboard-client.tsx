@@ -13,6 +13,7 @@ import type {
 // Type-only import of the API's own payload type — the page conforms to the
 // shape compute.ts defines, never a parallel one. Erased at compile time.
 import type { DashboardPayload, WeekSummary } from '@/lib/dashboard/compute';
+import type { Insight } from '@/lib/insights/schema';
 import {
   displayScore,
   formatDateHeading,
@@ -289,7 +290,7 @@ function DayView({ payload, isToday }: { payload: DashboardPayload; isToday: boo
         <TrendCard trend={payload.trend} />
       </div>
 
-      <InsightsPlaceholder />
+      <InsightsCard insights={payload.insights} />
     </>
   );
 }
@@ -684,13 +685,26 @@ function TrendCard({ trend }: { trend: Trend | null }) {
   );
 }
 
-function InsightsPlaceholder() {
+/**
+ * Coaching insights. The payload's `insights` are EITHER stored LLM cards (paid
+ * users, once the nightly collect cron ran) OR the deterministic computed tips
+ * (free users, pre-collect days, or per-user LLM failures) — the API decided,
+ * and they share one {type,title,body} shape, so this component renders both
+ * identically and can't tell which it got. No LLM call happens here or anywhere
+ * in the dashboard request path.
+ */
+function InsightsCard({ insights }: { insights: Insight[] }) {
   return (
     <section className={`${styles.card} ${styles.insights}`}>
       <h2 className={styles.sectionTitle}>Coaching insights</h2>
-      <p className={styles.muted}>
-        Coming soon — personalized, supportive suggestions drawn from your own patterns.
-      </p>
+      <ul className={styles.insightList}>
+        {insights.map((insight, i) => (
+          <li key={i} className={styles.insightItem}>
+            <h3 className={styles.insightTitle}>{insight.title}</h3>
+            <p className={styles.insightBody}>{insight.body}</p>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
