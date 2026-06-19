@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_SCHEDULE, type WorkSchedule } from '@pulse/shared';
-import { addDays, dayOfWeek, isWorkingDay } from './date-utils';
+import {
+  addDays,
+  dayOfWeek,
+  isWorkingDay,
+  nextWorkingDay,
+  previousWorkingDay,
+  weekdayName,
+} from './date-utils';
 
 describe('addDays', () => {
   it('adds and subtracts a single day', () => {
@@ -77,5 +84,54 @@ describe('isWorkingDay', () => {
     expect(isWorkingDay('2026-06-10', schedule)).toBe(false); // Wed
     expect(isWorkingDay('2026-06-11', schedule)).toBe(true); // Thu
     expect(isWorkingDay('2026-06-13', schedule)).toBe(true); // Sat
+  });
+});
+
+describe('weekdayName', () => {
+  it('maps civil dates to weekday names (pure, no Date/locale)', () => {
+    expect(weekdayName('2026-06-12')).toBe('Friday');
+    expect(weekdayName('2026-06-13')).toBe('Saturday');
+    expect(weekdayName('2026-06-14')).toBe('Sunday');
+    expect(weekdayName('2026-06-15')).toBe('Monday');
+    expect(weekdayName('2026-06-11')).toBe('Thursday');
+  });
+});
+
+describe('nextWorkingDay', () => {
+  it('returns the next day when it is a working day (Mon -> Tue)', () => {
+    expect(nextWorkingDay('2026-06-08', DEFAULT_SCHEDULE)).toBe('2026-06-09'); // Mon -> Tue
+  });
+
+  it('skips the weekend: Friday -> Monday (the case that motivated this fix)', () => {
+    // 2026-06-12 is Friday; Sat 13 + Sun 14 are skipped.
+    expect(nextWorkingDay('2026-06-12', DEFAULT_SCHEDULE)).toBe('2026-06-15'); // Mon
+  });
+
+  it('skips a vacation day', () => {
+    const schedule: WorkSchedule = { ...DEFAULT_SCHEDULE, vacationDates: ['2026-06-10'] };
+    // From Tue 09, Wed 10 is a weekday but on vacation -> Thu 11.
+    expect(nextWorkingDay('2026-06-09', schedule)).toBe('2026-06-11');
+  });
+
+  it('falls back to the adjacent calendar day for a degenerate schedule (no working day in range)', () => {
+    const degenerate: WorkSchedule = { ...DEFAULT_SCHEDULE, workingDays: [] };
+    const result = nextWorkingDay('2026-06-08', degenerate);
+    expect(result).toBe('2026-06-09'); // adjacent day fallback
+    // The fallback is detectable: the returned day is NOT a working day (this is
+    // what the caller checks before warning).
+    expect(isWorkingDay(result, degenerate)).toBe(false);
+  });
+});
+
+describe('previousWorkingDay', () => {
+  it('skips the weekend: Monday -> Friday', () => {
+    expect(previousWorkingDay('2026-06-15', DEFAULT_SCHEDULE)).toBe('2026-06-12'); // Mon -> Fri
+  });
+
+  it('falls back to the adjacent calendar day for a degenerate schedule', () => {
+    const degenerate: WorkSchedule = { ...DEFAULT_SCHEDULE, workingDays: [] };
+    const result = previousWorkingDay('2026-06-15', degenerate);
+    expect(result).toBe('2026-06-14');
+    expect(isWorkingDay(result, degenerate)).toBe(false);
   });
 });
