@@ -14,3 +14,10 @@ export const INSIGHTS_MAX_TOKENS = 1024;
  * a user's local summary date.
  */
 export const ROSTER_FRESHNESS_DAYS = 2;
+
+/**
+ * Anthropic Message Batches finish within 24h. Past that, the collect cron gives
+ * up on a still-unfinished batch (marks it 'expired') instead of rescanning it
+ * forever — those users fall through to computed tips at read.
+ */
+export const BATCH_WINDOW_MS = 24 * 60 * 60 * 1000;
