@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/insights/submit",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}
