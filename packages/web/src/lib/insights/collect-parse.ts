@@ -35,11 +35,14 @@ export function parseInsightResult(text: string): Insight[] | null {
   return result.success ? result.data.insights : null;
 }
 
-/** One Anthropic batch result, flattened for attribution. `ok` is false for a
- *  non-succeeded result (errored/canceled/expired); `text` is the model's reply. */
+/** A batch request's OWN terminal status, as Anthropic reports it per result. */
+export type BatchResultStatus = 'succeeded' | 'errored' | 'canceled' | 'expired';
+
+/** One Anthropic batch result, carrying its PER-REQUEST status (the primary
+ *  signal) and the model's reply text (present only for a succeeded result). */
 export interface RawBatchResult {
   customId: string;
-  ok: boolean;
+  status: BatchResultStatus;
   text: string | null;
 }
 
@@ -51,15 +54,18 @@ export interface StoredInsight {
 
 export interface SkippedResult {
   customId: string;
-  reason: 'transport' | 'bad-custom-id' | 'parse-or-schema';
+  reason: Exclude<BatchResultStatus, 'succeeded'> | 'bad-custom-id' | 'parse-or-schema';
 }
 
 /**
- * Attribute each batch result to (user, date) and parse it. A per-user failure
- * (non-succeeded result, unparseable custom_id, or bad/invalid JSON) is SKIPPED,
- * never aborting the batch — those users fall through to computed tips at read.
- * Pure and deterministic: the same input always yields the same plan, which is
- * what makes the route's delete-then-insert idempotent.
+ * Attribute each batch result to (user, date) and parse it. The PER-REQUEST
+ * status is the primary signal: only 'succeeded' is parsed; 'errored' /
+ * 'canceled' / 'expired' are skipped under their own status (the batch-level 24h
+ * wall-clock in decideBatchAction is just the dead-man's switch, not this). A
+ * succeeded result that fails custom_id/JSON/schema is likewise skipped. Every
+ * skip is per-user and never aborts the batch — those users fall through to
+ * computed tips at read. Pure and deterministic: same input -> same plan, which
+ * is what makes the route's delete-then-insert idempotent.
  */
 export function collectBatchResults(results: RawBatchResult[]): {
   stored: StoredInsight[];
@@ -69,8 +75,9 @@ export function collectBatchResults(results: RawBatchResult[]): {
   const skipped: SkippedResult[] = [];
 
   for (const r of results) {
-    if (!r.ok || r.text === null) {
-      skipped.push({ customId: r.customId, reason: 'transport' });
+    if (r.status !== 'succeeded') {
+      // Per-request terminal failure — skip under its real status, not "transport".
+      skipped.push({ customId: r.customId, reason: r.status });
       continue;
     }
     const id = parseCustomId(r.customId);
@@ -78,7 +85,7 @@ export function collectBatchResults(results: RawBatchResult[]): {
       skipped.push({ customId: r.customId, reason: 'bad-custom-id' });
       continue;
     }
-    const insights = parseInsightResult(r.text);
+    const insights = r.text === null ? null : parseInsightResult(r.text);
     if (!insights) {
       skipped.push({ customId: r.customId, reason: 'parse-or-schema' });
       continue;

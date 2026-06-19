@@ -81,7 +81,9 @@ export async function GET(request: Request) {
         continue;
       }
 
-      // action === 'collect' — batch ended; gather its results.
+      // action === 'collect' — batch ended; gather its results, preserving each
+      // request's OWN terminal status (succeeded/errored/canceled/expired) so the
+      // pure collector decides per-request, not this route.
       const raw: RawBatchResult[] = [];
       for await (const entry of await anthropic.messages.batches.results(row.batch_id)) {
         if (entry.result.type === 'succeeded') {
@@ -89,9 +91,10 @@ export async function GET(request: Request) {
             .filter((b): b is Anthropic.TextBlock => b.type === 'text')
             .map((b) => b.text)
             .join('');
-          raw.push({ customId: entry.custom_id, ok: true, text });
+          raw.push({ customId: entry.custom_id, status: 'succeeded', text });
         } else {
-          raw.push({ customId: entry.custom_id, ok: false, text: null });
+          // entry.result.type is 'errored' | 'canceled' | 'expired' here.
+          raw.push({ customId: entry.custom_id, status: entry.result.type, text: null });
         }
       }
 

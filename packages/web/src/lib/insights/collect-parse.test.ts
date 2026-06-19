@@ -31,30 +31,42 @@ describe('parseInsightResult (fence-strip is unconditional)', () => {
   });
 });
 
-describe('collectBatchResults (per-user failure never aborts the batch)', () => {
+describe('collectBatchResults (per-request status is the primary signal)', () => {
   const uid = 'e4f82d82-1c3a-4b5e-9f01-2a3b4c5d6e7f';
 
-  it('stores a good result attributed to the right (user, date)', () => {
-    const { stored, skipped } = collectBatchResults([{ customId: `${uid}__2026-06-15`, ok: true, text: goodJson }]);
+  it('stores a succeeded result attributed to the right (user, date)', () => {
+    const { stored, skipped } = collectBatchResults([{ customId: `${uid}__2026-06-15`, status: 'succeeded', text: goodJson }]);
     expect(skipped).toHaveLength(0);
     expect(stored).toEqual([{ userId: uid, date: '2026-06-15', insights: expect.any(Array) }]);
     expect(stored[0]?.insights).toHaveLength(2);
   });
 
-  it('skips ONE bad output and stores the others intact', () => {
+  it('ended batch with a per-request "expired" result: succeeded users store, the expired user gets NO row', () => {
     const results: RawBatchResult[] = [
-      { customId: `${uid}__2026-06-15`, ok: true, text: goodJson }, // good
-      { customId: 'bad-user__2026-06-15', ok: true, text: 'garbage' }, // parse fail
-      { customId: 'other-user__2026-06-16', ok: true, text: '```json\n' + goodJson + '\n```' }, // fenced good
-      { customId: 'errored-user__2026-06-15', ok: false, text: null }, // transport
+      { customId: `${uid}__2026-06-15`, status: 'succeeded', text: goodJson },
+      { customId: 'other-user__2026-06-16', status: 'succeeded', text: '```json\n' + goodJson + '\n```' },
+      { customId: 'expired-user__2026-06-15', status: 'expired', text: null },
     ];
     const { stored, skipped } = collectBatchResults(results);
     expect(stored.map((s) => s.userId).sort()).toEqual([uid, 'other-user'].sort());
-    expect(skipped.map((s) => s.reason).sort()).toEqual(['parse-or-schema', 'transport']);
+    // The expired request is skipped under its OWN status (not "transport"), so it
+    // gets no row and falls to computed tips at read.
+    expect(skipped).toEqual([{ customId: 'expired-user__2026-06-15', reason: 'expired' }]);
+  });
+
+  it('skips a bad/garbled succeeded output and stores the others intact', () => {
+    const results: RawBatchResult[] = [
+      { customId: `${uid}__2026-06-15`, status: 'succeeded', text: goodJson }, // good
+      { customId: 'bad-user__2026-06-15', status: 'succeeded', text: 'garbage' }, // parse fail
+      { customId: 'errored-user__2026-06-15', status: 'errored', text: null }, // per-request errored
+    ];
+    const { stored, skipped } = collectBatchResults(results);
+    expect(stored.map((s) => s.userId)).toEqual([uid]);
+    expect(skipped.map((s) => s.reason).sort()).toEqual(['errored', 'parse-or-schema']);
   });
 
   it('is deterministic — same input yields the same plan (data-layer idempotency)', () => {
-    const input: RawBatchResult[] = [{ customId: `${uid}__2026-06-15`, ok: true, text: goodJson }];
+    const input: RawBatchResult[] = [{ customId: `${uid}__2026-06-15`, status: 'succeeded', text: goodJson }];
     expect(collectBatchResults(input)).toEqual(collectBatchResults(input));
   });
 });
