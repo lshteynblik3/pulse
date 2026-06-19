@@ -6,6 +6,7 @@ import { getWorkSchedule } from '@/lib/work-schedule/loader';
 import { fetchWindowStart } from '@/lib/dashboard/compute';
 import { SYSTEM_PROMPT, buildInsightsUserMessage } from '@/lib/insights/prompt';
 import { buildDayInsightContext } from '@/lib/insights/context';
+import { buildCustomId } from '@/lib/insights/custom-id';
 import { rosterCutoff, selectRoster, type RosterCandidate } from '@/lib/insights/roster';
 import { INSIGHTS_MODEL, INSIGHTS_MAX_TOKENS, ROSTER_FRESHNESS_DAYS } from '@/lib/insights/config';
 
@@ -149,7 +150,7 @@ export async function GET(request: Request) {
     });
 
     requests.push({
-      custom_id: `${entry.userId}__${entry.insightDate}`,
+      custom_id: buildCustomId(entry.userId, entry.insightDate),
       params: {
         model: INSIGHTS_MODEL,
         max_tokens: INSIGHTS_MAX_TOKENS,
