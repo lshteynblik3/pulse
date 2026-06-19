@@ -16,6 +16,7 @@
  */
 
 import type { DailySummary, PeakHour, Streak } from '@pulse/shared';
+import { weekdayName } from '../../../lib/scoring/date-utils';
 
 export const SYSTEM_PROMPT = `You are Pulse, a supportive productivity coach. You speak directly to one person as "you", like a coach in their corner — never a manager auditing them. Your job is to turn a day's focus metrics into 2–3 short, encouraging, genuinely useful insights.
 
@@ -47,6 +48,12 @@ export interface InsightContext {
   thisWeekAvg: number | null;
   /** Avg working-day score last week, or null when there's no baseline yet. */
   lastWeekAvg: number | null;
+  /**
+   * The user's next working day after the coached day (computed by the route via
+   * resolveNextWorkingDay, which skips weekends + vacations). Rendered as a
+   * weekday name so the coach can say "going into Monday" instead of "tomorrow".
+   */
+  nextWorkingDate: string;
 }
 
 /** Format a 0–23 local hour as lowercase 12-hour am/pm (0 -> "12am", 14 -> "2pm").
@@ -92,7 +99,10 @@ export function buildInsightsUserMessage(summary: DailySummary, context: Insight
       : `${context.thisWeekAvg - context.lastWeekAvg >= 0 ? '+' : ''}${context.thisWeekAvg - context.lastWeekAvg}`;
 
   return [
-    `Date: ${summary.date} (working day)`,
+    // Weekday names only (no ISO date) so the model echoes "Thursday"/"Monday"
+    // and can never compute a relative "today"/"tomorrow" from an absolute date.
+    `Day coached: ${weekdayName(summary.date)}`,
+    `Next working day: ${weekdayName(context.nextWorkingDate)}`,
     `Focus minutes: ${focusMin}`,
     `Active minutes: ${activeMin}`,
     `Focus blocks: ${blocks}`,

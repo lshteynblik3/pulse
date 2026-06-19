@@ -7,6 +7,7 @@ import { fetchWindowStart } from '@/lib/dashboard/compute';
 import { SYSTEM_PROMPT, buildInsightsUserMessage } from '@/lib/insights/prompt';
 import { buildDayInsightContext } from '@/lib/insights/context';
 import { buildCustomId } from '@/lib/insights/custom-id';
+import { resolveNextWorkingDay } from '@/lib/insights/dates';
 import { rosterCutoff, selectRoster, type RosterCandidate } from '@/lib/insights/roster';
 import { INSIGHTS_MODEL, INSIGHTS_MAX_TOKENS, ROSTER_FRESHNESS_DAYS } from '@/lib/insights/config';
 
@@ -142,11 +143,13 @@ export async function GET(request: Request) {
     // insightDate came from a real summary, so ctx.summary is present; guard anyway.
     if (!ctx.summary) continue;
 
+    const nextWorkingDate = resolveNextWorkingDay(entry.insightDate, schedule, entry.userId);
     const userMessage = buildInsightsUserMessage(ctx.summary, {
       peakHours: ctx.peakHours,
       streak: ctx.streak,
       thisWeekAvg: ctx.thisWeekAvg,
       lastWeekAvg: ctx.lastWeekAvg,
+      nextWorkingDate,
     });
 
     requests.push({

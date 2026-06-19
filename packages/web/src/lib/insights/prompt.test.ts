@@ -44,11 +44,14 @@ describe('buildInsightsUserMessage', () => {
       streak: { count: 8, endedOn: null, endReason: 'active' },
       thisWeekAvg: 78,
       lastWeekAvg: 72,
+      nextWorkingDate: '2026-06-16', // Tuesday (coached day 2026-06-15 is Monday)
     };
 
-    expect(buildInsightsUserMessage(summary(), context)).toBe(
+    const rendered = buildInsightsUserMessage(summary(), context);
+    expect(rendered).toBe(
       [
-        'Date: 2026-06-15 (working day)',
+        'Day coached: Monday',
+        'Next working day: Tuesday',
         'Focus minutes: 250',
         'Active minutes: 380',
         'Focus blocks: 4 blocks, 170 minutes total',
@@ -60,6 +63,11 @@ describe('buildInsightsUserMessage', () => {
         'Week-over-week change: +6',
       ].join('\n'),
     );
+    // Weekday names present, ISO "(working day)" date line gone.
+    expect(rendered).toContain('Day coached: Monday');
+    expect(rendered).toContain('Next working day: Tuesday');
+    expect(rendered).not.toContain('(working day)');
+    expect(rendered).not.toContain('2026-06-15');
   });
 
   it('spells absence in words on a thin-data day (no zeros leaking as real lows)', () => {
@@ -68,6 +76,7 @@ describe('buildInsightsUserMessage', () => {
       streak: { count: 0, endedOn: null, endReason: 'no_history' },
       thisWeekAvg: null,
       lastWeekAvg: null,
+      nextWorkingDate: '2026-06-16',
     };
     const msg = buildInsightsUserMessage(
       summary({ activeMinutes: 0, focusMinutes: 0, meetingMinutes: 0, focusBlockCount: 0, focusBlockMinutes: 0 }),
@@ -91,6 +100,7 @@ describe('buildInsightsUserMessage', () => {
       streak: { count: 0, endedOn: '2026-06-15', endReason: 'low_score' },
       thisWeekAvg: 58,
       lastWeekAvg: 75,
+      nextWorkingDate: '2026-06-16',
     };
     const msg = buildInsightsUserMessage(summary(), context);
     expect(msg).toContain('Current streak: none right now — a streak ended on 2026-06-15 after a low-scoring day');
