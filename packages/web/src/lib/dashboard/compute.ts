@@ -35,7 +35,7 @@ import {
   personalMedian30d,
   weekOverWeekTrend,
 } from '../../../lib/scoring';
-import { addDays, isWorkingDay } from '../../../lib/scoring/date-utils';
+import { addDays, isWorkingDay, nextWorkingDay } from '../../../lib/scoring/date-utils';
 // Display helpers (Batch D): the agent popover's score is shaped HERE,
 // server-side, because the Electron agent can't import web code — so the ×1.3
 // displayScore is applied once (shared with the web render) before the wire.
@@ -259,6 +259,10 @@ export function computeDashboard(
   isDefault: boolean,
   today: string,
   lastActivityAt: string | null = null,
+  // The next working day after `today`. Optional with an internal default so
+  // tests need no change; the /api/dashboard route passes a value resolved via
+  // resolveNextWorkingDay so the PROD path logs the degenerate-schedule fallback.
+  nextWorkingDate: string = nextWorkingDay(today, schedule),
 ): DashboardPayload {
   // A summary dated after `today` (clock skew, another device ahead of this
   // client's local day) is excluded by every window filter below.
@@ -290,8 +294,16 @@ export function computeDashboard(
     // Same summaries + scoredDays the per-day payload used — no extra query.
     week: computeWeekSummary(summaries, scoredDays, schedule, today),
     // Pure, no-LLM tips from the numbers above; the route swaps in stored LLM
-    // insights when the viewed day has them.
-    insights: computedTips({ summary: todaySummary, peakHours: peaks, streak, trend }),
+    // insights when the viewed day has them. coachedDate/nextWorkingDate let the
+    // tips name days as weekdays (never "today"/"tomorrow").
+    insights: computedTips({
+      summary: todaySummary,
+      peakHours: peaks,
+      streak,
+      trend,
+      coachedDate: today,
+      nextWorkingDate,
+    }),
   };
 }
 

@@ -3,6 +3,7 @@ import type { DailySummary } from '@pulse/shared';
 import { createServerClient } from '@/lib/auth/server';
 import { computeDashboard, fetchWindowStart } from '@/lib/dashboard/compute';
 import type { Insight } from '@/lib/insights/schema';
+import { resolveNextWorkingDay } from '@/lib/insights/dates';
 import { isValidLocalDate } from '@/lib/work-schedule/schema';
 import { getWorkSchedule } from '@/lib/work-schedule/loader';
 
@@ -124,7 +125,9 @@ export async function GET(request: Request) {
   try {
     const { schedule, isDefault } = await getWorkSchedule(supabase, user.id);
     const summaries = ((data ?? []) as DailySummaryRow[]).map(rowToSummary);
-    const payload = computeDashboard(summaries, schedule, isDefault, date, lastActivityAt);
+    // Resolved here (not inside computeDashboard) so the warn carries user.id.
+    const nextWorkingDate = resolveNextWorkingDay(date, schedule, user.id);
+    const payload = computeDashboard(summaries, schedule, isDefault, date, lastActivityAt, nextWorkingDate);
 
     // Row presence IS the gate (only paid users ever get rows written), so no
     // is_paid check here — override the computed fallback only when rows exist.
