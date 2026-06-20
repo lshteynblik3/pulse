@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import type { Category, DailySummary } from '@pulse/shared';
-import { buildInsightsUserMessage, type InsightContext } from './prompt';
+import { SYSTEM_PROMPT, buildInsightsUserMessage, type InsightContext } from './prompt';
 import { insightsSchema } from './schema';
+
+describe('SYSTEM_PROMPT temporal rule', () => {
+  it('references the named-day labels and forbids relative day words', () => {
+    expect(SYSTEM_PROMPT).toContain('"Day coached"');
+    expect(SYSTEM_PROMPT).toContain('"Next working day"');
+    expect(SYSTEM_PROMPT).toContain('NEVER write "today", "tomorrow", or "yesterday"');
+    expect(SYSTEM_PROMPT).toContain('numbers and named days you are given');
+  });
+});
 
 function categories(partial: Partial<Record<Category, number>> = {}): Record<Category, number> {
   return {
