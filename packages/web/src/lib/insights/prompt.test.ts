@@ -10,6 +10,15 @@ describe('SYSTEM_PROMPT temporal rule', () => {
     expect(SYSTEM_PROMPT).toContain('NEVER write "today", "tomorrow", or "yesterday"');
     expect(SYSTEM_PROMPT).toContain('numbers and named days you are given');
   });
+
+  it('frames day-naming as replace-not-add and caps title/body length (regression fix)', () => {
+    // The replace clause is ADDITIONAL to the absolute prohibition, not a softening.
+    expect(SYSTEM_PROMPT).toContain('Put the weekday name in PLACE of the relative word');
+    expect(SYSTEM_PROMPT).toContain('replaces a word, never adds length');
+    // Explicit brevity targets matching the schema bounds (title 60 / body 280).
+    expect(SYSTEM_PROMPT).toContain('under 60 characters');
+    expect(SYSTEM_PROMPT).toContain('under 280 characters');
+  });
 });
 
 function categories(partial: Partial<Record<Category, number>> = {}): Record<Category, number> {
