@@ -99,3 +99,64 @@ export function isWorkingDay(yyyymmdd: string, schedule: WorkSchedule): boolean 
   if (schedule.vacationDates.includes(yyyymmdd)) return false;
   return schedule.workingDays.includes(dayOfWeek(yyyymmdd));
 }
+
+/** Weekday names indexed by {@link dayOfWeek} (0 = Sunday … 6 = Saturday). */
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
+
+/**
+ * The weekday name for a civil date, e.g. "Thursday". Pure — derived from
+ * {@link dayOfWeek}, never `Date`/locale, so it can't shift across a timezone.
+ * Used to name days in coaching insights so they never say "today"/"tomorrow"
+ * (which rot when an insight is read on a later day).
+ */
+export function weekdayName(yyyymmdd: string): string {
+  // dayOfWeek always returns 0–6, so the index is always in range.
+  return WEEKDAY_NAMES[dayOfWeek(yyyymmdd)]!;
+}
+
+/** Default cap for the working-day scan — generous enough for any real vacation
+ *  run, small enough that a degenerate schedule can't spin. */
+const MAX_WORKING_DAY_SCAN = 14;
+
+/**
+ * The next working day strictly AFTER `yyyymmdd` under `schedule` — skips
+ * weekends and vacation dates (via {@link isWorkingDay}). Scans up to `maxScan`
+ * days; if NO working day is found in range (a degenerate schedule: empty
+ * `workingDays`, or a vacation run longer than the window), falls back to the
+ * adjacent calendar day. That fallback is unreachable with a real schedule; the
+ * caller detects it (the result is not a working day) and warns — see
+ * `lib/insights/dates.ts`.
+ */
+export function nextWorkingDay(
+  yyyymmdd: string,
+  schedule: WorkSchedule,
+  maxScan: number = MAX_WORKING_DAY_SCAN,
+): string {
+  for (let i = 1; i <= maxScan; i++) {
+    const candidate = addDays(yyyymmdd, i);
+    if (isWorkingDay(candidate, schedule)) return candidate;
+  }
+  return addDays(yyyymmdd, 1); // fallback: adjacent calendar day (see docstring)
+}
+
+/** The previous working day strictly BEFORE `yyyymmdd` — symmetric to
+ *  {@link nextWorkingDay}, same scan cap and adjacent-day fallback. */
+export function previousWorkingDay(
+  yyyymmdd: string,
+  schedule: WorkSchedule,
+  maxScan: number = MAX_WORKING_DAY_SCAN,
+): string {
+  for (let i = 1; i <= maxScan; i++) {
+    const candidate = addDays(yyyymmdd, -i);
+    if (isWorkingDay(candidate, schedule)) return candidate;
+  }
+  return addDays(yyyymmdd, -1); // fallback: adjacent calendar day
+}

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import type { DailySummary } from '@pulse/shared';
 import { createServerClient } from '@/lib/auth/server';
 import { computeDashboard, fetchWindowStart } from '@/lib/dashboard/compute';
+import type { Insight } from '@/lib/insights/schema';
+import { resolveNextWorkingDay } from '@/lib/insights/dates';
 import { isValidLocalDate } from '@/lib/work-schedule/schema';
 import { getWorkSchedule } from '@/lib/work-schedule/loader';
 
@@ -104,10 +106,40 @@ export async function GET(request: Request) {
   }
   const lastActivityAt = (deviceRows?.[0]?.last_used_at as string | undefined) ?? null;
 
+  // Stored LLM insights for the VIEWED day. SESSION client (NOT service-role):
+  // migration 0011's RLS read-own policy is what guarantees a user only ever sees
+  // their own insights — the service-role client would bypass it. Absence (no
+  // rows) is not failure: it's a free user, or a paid user before collect ran, or
+  // a per-user LLM failure — all of which fall through to the computed tips that
+  // computeDashboard already put in the payload. A DB error is a 500.
+  const { data: insightRows, error: insightError } = await supabase
+    .from('insights')
+    .select('type, title, body')
+    .eq('user_id', user.id)
+    .eq('date', date)
+    .order('created_at', { ascending: true });
+  if (insightError) {
+    return NextResponse.json({ error: 'Could not load your dashboard.' }, { status: 500 });
+  }
+
   try {
     const { schedule, isDefault } = await getWorkSchedule(supabase, user.id);
     const summaries = ((data ?? []) as DailySummaryRow[]).map(rowToSummary);
-    return NextResponse.json(computeDashboard(summaries, schedule, isDefault, date, lastActivityAt));
+    // Resolved here (not inside computeDashboard) so the warn carries user.id.
+    const nextWorkingDate = resolveNextWorkingDay(date, schedule, user.id);
+    const payload = computeDashboard(summaries, schedule, isDefault, date, lastActivityAt, nextWorkingDate);
+
+    // Row presence IS the gate (only paid users ever get rows written), so no
+    // is_paid check here — override the computed fallback only when rows exist.
+    if (insightRows && insightRows.length > 0) {
+      payload.insights = insightRows.map((r) => ({
+        type: r.type as Insight['type'],
+        title: r.title as string,
+        body: r.body as string,
+      }));
+    }
+
+    return NextResponse.json(payload);
   } catch {
     return NextResponse.json({ error: 'Could not load your dashboard.' }, { status: 500 });
   }

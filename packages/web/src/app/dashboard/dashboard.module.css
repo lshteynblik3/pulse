@@ -480,11 +480,38 @@
   font-weight: 600;
 }
 
-/* ---- Insights placeholder ---- */
+/* ---- Coaching insights ---- */
 
 .insights {
   background: linear-gradient(135deg, #ffffff, #f7f4ff);
-  border-style: dashed;
+}
+
+.insightList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.insightItem {
+  padding-left: 12px;
+  border-left: 3px solid #d9cffb;
+}
+
+.insightTitle {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #3a3650;
+}
+
+.insightBody {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #57536a;
 }
 
 /* ---- Error / retry ---- */

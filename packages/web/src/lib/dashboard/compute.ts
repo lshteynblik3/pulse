@@ -35,11 +35,15 @@ import {
   personalMedian30d,
   weekOverWeekTrend,
 } from '../../../lib/scoring';
-import { addDays, isWorkingDay } from '../../../lib/scoring/date-utils';
+import { addDays, isWorkingDay, nextWorkingDay } from '../../../lib/scoring/date-utils';
 // Display helpers (Batch D): the agent popover's score is shaped HERE,
 // server-side, because the Electron agent can't import web code — so the ×1.3
 // displayScore is applied once (shared with the web render) before the wire.
 import { displayScore, scoreMessage } from './format';
+// The insights card's data. computedTips is the pure, no-LLM fallback — the
+// free-tier path AND the default the route overrides with stored LLM insights.
+import { computedTips } from '../insights/computed-tips';
+import type { Insight } from '../insights/schema';
 
 /** Days we emit scores for (ending on `today`) — what streak and trend can see. */
 export const SCORED_WINDOW_DAYS = 92;
@@ -108,6 +112,16 @@ export interface DashboardPayload {
   };
   /** Rolling-7-day rollup ending on `date` — the Day/Week toggle's Week view. */
   week: WeekSummary;
+  /**
+   * Coaching insights to render. computeDashboard fills this with the COMPUTED
+   * (no-LLM) tips — the free-tier path; the /api/dashboard route OVERRIDES it
+   * with stored LLM insights (the `insights` table, read under the session client
+   * / RLS read-own) when the viewed day has them. Same {type,title,body} shape
+   * either way, so the UI renders one component and can't tell which it got.
+   * No LLM call is ever made in the dashboard request path — computedTips is pure
+   * and synchronous.
+   */
+  insights: Insight[];
 }
 
 /** Days in the rolling week window (the viewed day + the 6 before it). */
@@ -245,12 +259,25 @@ export function computeDashboard(
   isDefault: boolean,
   today: string,
   lastActivityAt: string | null = null,
+  // The next working day after `today`. Optional with an internal default so
+  // tests need no change; the /api/dashboard route passes a value resolved via
+  // resolveNextWorkingDay so the PROD path logs the degenerate-schedule fallback.
+  nextWorkingDate: string = nextWorkingDay(today, schedule),
 ): DashboardPayload {
   // A summary dated after `today` (clock skew, another device ahead of this
   // client's local day) is excluded by every window filter below.
   const todaySummary = summaries.find((s) => s.date === today) ?? null;
   const peakStart = addDays(today, -(PEAK_HOURS_WINDOW_DAYS - 1));
   const scoredDays = buildScoredDays(summaries, schedule, today);
+
+  // Locals so the same values feed both the payload fields and the computed-tips
+  // fallback below — they can't drift.
+  const peaks = peakHours(
+    summaries.filter((s) => s.date >= peakStart && s.date <= today),
+    schedule,
+  );
+  const streak = currentStreak(scoredDays, today, schedule);
+  const trend = weekOverWeekTrend(scoredDays, today, schedule);
 
   return {
     date: today,
@@ -259,16 +286,24 @@ export function computeDashboard(
       focus: todaySummary ? scoreDay(todaySummary, summaries, schedule) : null,
       isWorkingDay: isWorkingDay(today, schedule),
     },
-    peakHours: peakHours(
-      summaries.filter((s) => s.date >= peakStart && s.date <= today),
-      schedule,
-    ),
-    streak: currentStreak(scoredDays, today, schedule),
-    trend: weekOverWeekTrend(scoredDays, today, schedule),
+    peakHours: peaks,
+    streak,
+    trend,
     schedule: { isDefault },
     agent: { lastActivityAt },
     // Same summaries + scoredDays the per-day payload used — no extra query.
     week: computeWeekSummary(summaries, scoredDays, schedule, today),
+    // Pure, no-LLM tips from the numbers above; the route swaps in stored LLM
+    // insights when the viewed day has them. coachedDate/nextWorkingDate let the
+    // tips name days as weekdays (never "today"/"tomorrow").
+    insights: computedTips({
+      summary: todaySummary,
+      peakHours: peaks,
+      streak,
+      trend,
+      coachedDate: today,
+      nextWorkingDate,
+    }),
   };
 }
 

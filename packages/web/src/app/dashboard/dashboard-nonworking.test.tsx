@@ -60,6 +60,7 @@ function makePayload(today: DashboardPayload['today']): DashboardPayload {
     schedule: { isDefault: false },
     agent: { lastActivityAt: null },
     week: EMPTY_WEEK,
+    insights: [],
   };
 }
 
