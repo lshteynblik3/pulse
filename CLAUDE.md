@@ -1,23 +1,30 @@
 # CLAUDE.md
-CURRENT PHASE: Phase 4 COMPLETE and merged to main via the --no-ff
-merge commit 9895b4a (2026-06-16). Everything below is now on main:
-the full Phase 4 employee dashboard + Supabase auth, the agent
-identity/pairing/settings/tray-popover/companion-widget work
-(4f–4i), and web batches A (dashboard quick wins), C (date
-navigation + week summary + non-working-day display), and D (score
-/130 display rescale + popover non-working-day fix).
+CURRENT PHASE: Phase 5 (AI insights) COMPLETE and merged to main via
+the --no-ff merge commit 0765749. It is NOT DEPLOYED, and that is
+DELIBERATE: go-live — apply migrations 0010 + 0011 to the prod
+Supabase DB, set ANTHROPIC_API_KEY + CRON_SECRET on Vercel, and deploy
+so Vercel schedules the two crons — is DEFERRED to Phase 8, where the
+playbook sequences deploy together with billing + monitoring (Vercel
+isn't set up yet). The worker is proven by a LOCAL live-fire run
+against the real Anthropic API (the throwaway insights-bench: 30/30
+schema-valid, zero relative-time words on the tightened prompt), NOT
+by any scheduled prod run. Do NOT assume Phase 5 is live, and do NOT
+deploy it ahead of Phase 8.
 
-Next up is Phase 5 (AI insights — Vercel Cron → Claude API), but it
-has NOT started — only a placeholder insights card exists in the
-dashboard. Before the Phase 5 cron goes live, two gates must clear
-(see "Pre-Phase-5 gates" below): a paid-flag mechanism (billing
-proper is Phase 8, so Phase 5 needs at least a stub paid flag or
-free users incur API cost) and Anthropic cost-control setup (batch
-API + prompt caching + Haiku). The embedded-dashboard auth bridge
-and the email+password/OAuth rework remain their own later phases.
+Next up is Phase 6 (manager / team view) per the playbook: orgs,
+teams, roles (member/manager/admin), team-level aggregates, and
+access-logging + notify-on-view.
 
-BRANCH-TOPOLOGY HISTORY (correction logged 2026-06-11; the stack
-landed on main via --no-ff merge 9895b4a on 2026-06-16). The
+PHASE-5 MERGE TOPOLOGY: built on phase-5-insights-worker (off main);
+the temporal-language fix stacked on phase-5-insights-temporal; the
+throwaway model bench on phase-5-insights-bench. It landed as
+temporal → worker (--no-ff 26c0bcb) → main (--no-ff 0765749). The
+paid-flag stub (migration 0009) had merged to main earlier (--no-ff
+c6fd335). The bench branch is throwaway and was NOT merged; all
+Phase-5 branches are kept (not deleted).
+
+PHASE-4 BRANCH-TOPOLOGY HISTORY (correction logged 2026-06-11; the
+stack landed on main via --no-ff merge 9895b4a on 2026-06-16). The
 Phase-4 lineage was NEVER the stacked 4a → fix-categorization → 4b
 → … this file once claimed. In git: phase-4b was built directly on
 Phase 3; 4a's auth was lifted in VERBATIM as commit a373106 (not a
@@ -63,7 +70,8 @@ surveillance — that shapes the architecture.
 
 ```
 /agent    Electron desktop tracker
-/web      Next.js — /app (dashboard pages) + /app/api (ingest, dashboard, agent/today, etc.)
+/web      Next.js — /app (dashboard pages) + /app/api (ingest, dashboard, agent/today,
+          cron/insights/{submit,collect}, etc.)
 /shared   shared types: ActivityEvent, DailySummary, Category, scoring types
 ```
 
@@ -93,6 +101,14 @@ surveillance — that shapes the architecture.
   `getWorkSchedule`.
 - This user is solo and semi-technical: prefer clear, conventional code over clever
   abstractions. When you make a meaningful choice, say why in one sentence.
+- Insights name days by WEEKDAY NAME, never "today"/"tomorrow"/"yesterday" — a stored
+  insight is read a day or more after it's written, so a relative word points at the
+  wrong day (the "read-a-day-later" rule). Both the LLM builder and the computed-tips
+  fallback label the coached day and the next working day by weekday; helpers
+  `nextWorkingDay` / `previousWorkingDay` / `weekdayName` are pure functions in
+  `web/lib/scoring/date-utils` (`previousWorkingDay` is built + tested but not yet
+  consumed by the builder — reserved). The collect-side relative-word net is the
+  backstop (see the Phase 5 section).
 
 ### Pairing (Phase 4b)
 
@@ -106,9 +122,13 @@ surveillance — that shapes the architecture.
   safeStorage-encrypted `device-token.bin`. Never in a DB row, log line, or any
   other response. Pairing-code values are never logged either, even on failures.
 - Service-role Supabase usage — THE most security-sensitive surface in the
-  repo; keep this list exhaustive and auditable. Every entry is pinned in app
-  code to one specific user (the pairing code's, the token's, or the session's
-  own); no service-role call ever takes a parameter naming another user:
+  repo; keep this list exhaustive and auditable. Entries 1–6 are each pinned in
+  app code to ONE specific user (the pairing code's, the token's, or the
+  session's own) and never take a parameter naming another user. Entries 7–8 are
+  the Phase 5 CRON batch jobs — the deliberate exception: no session, operating
+  over the paid roster (MANY users), but CRON_SECRET-gated (only Vercel's
+  scheduler can invoke them) and every per-user read/write pinned to a legitimate
+  target (a paid-roster member, or the user encoded in a batch result's custom_id):
     1. /api/devices/pair/consume — pairing-code claim UPDATE + device_tokens
        INSERT (no session exists at pairing time).
     2. The shared device-token auth helper (`web/src/lib/devices/auth.ts`):
@@ -126,7 +146,21 @@ surveillance — that shapes the architecture.
        correct and pinned.)
     6. /auth/callback — first-sign-in users-row provisioning upsert
        (ignoreDuplicates: can never overwrite an edited profile).
-  Everything else runs on the user's session client under RLS.
+    7. /api/cron/insights/submit (Phase 5) — service-role, CRON_SECRET-gated:
+       users.is_paid READ (the paid roster); daily_summaries READS (the roster's
+       recent dates, then each rostered user's scoring window); work_schedules via
+       getWorkSchedule(admin, userId); insight_batches INSERT (the tracking row).
+       No session in a cron; touches many users by design (the roster), each
+       downstream call pinned to a roster member's userId.
+    8. /api/cron/insights/collect (Phase 5) — service-role, CRON_SECRET-gated:
+       insight_batches READ (status='submitted') + UPDATE (status →
+       collected/expired); insights DELETE-then-INSERT per (user_id, date), where
+       user_id + date are decoded from the batch result's custom_id
+       ("<userId>__<date>"). This writes the stored LLM insights. The dashboard
+       READS insights under the SESSION client (RLS read-own), NOT here — so a
+       user can only ever read their own.
+  Everything else runs on the user's session client under RLS (the dashboard's
+  insights read included).
 - Known issue (accepted, not solved in 4b): if a user pairs two devices, the
   daily_summaries upsert is last-write-wins per (user_id, date) — one machine's
   day overwrites the other's. Multi-device merging is a later phase.
@@ -150,8 +184,9 @@ surveillance — that shapes the architecture.
 - Coach tone is a product rule, not styling: no red anywhere on the dashboard, and
   low scores read as supportive copy. Score-band copy and colors are unit-tested.
 - `/api/summary/today` was DELETED in 4d (it was unauthenticated, service-role, and
-  cross-user). The six service-role sites enumerated above still hold — every one
-  pinned to an authenticated identity.
+  cross-user). The eight service-role sites enumerated above still hold — entries
+  1–6 each pinned to one authenticated identity, 7–8 the Phase-5 CRON_SECRET-gated
+  batch jobs.
 - Styling: the dashboard's CSS module + next/font (Fraunces display face) is the
   pattern the settings pages migrate TOWARD later — not an exception to undo.
   Charts are hand-rolled SVG; reach for recharts only if date navigation or richer
@@ -289,6 +324,62 @@ surveillance — that shapes the architecture.
   (/api/agent/today) so the agent never multiplies — it just displays what the
   server sends. The popover's non-working-day handling now matches the web view.
 
+### Insights worker (Phase 5)
+
+- TWO crons, not one, to dodge Vercel function timeouts (a batch can take up to
+  24h). vercel.json schedules both: SUBMIT at 08:00 UTC, COLLECT at 11:00 UTC.
+  Both are service-role and CRON_SECRET-gated (reject any request without
+  `Authorization: Bearer <CRON_SECRET>`). All insight code lives in
+  `web/src/lib/insights` (pure, unit-tested) with the two routes as thin I/O.
+- SUBMIT (`/api/cron/insights/submit`): builds the paid roster — `is_paid = true`
+  users with a daily_summary within ROSTER_FRESHNESS_DAYS (2) of the cron's UTC
+  reference (selectRoster is the unit-tested gate; the server clock is read ONLY
+  for this freshness cutoff, never as a civil "today"). Builds one labelled-lines
+  user message per user (compute-on-read context: peak hours, streak, week trend)
+  and submits ONE Anthropic Message Batch (Haiku 4.5, claude-haiku-4-5-20251001).
+  Stores the batch id in `insight_batches`. No LLM in the free path — only paid
+  users ever enter a batch.
+- The (user, date) pair rides in each batch request's custom_id ("<userId>__<date>",
+  the user's most-recent LOCAL summary date), so COLLECT re-derives both from the
+  results — no roster column can drift from what was submitted.
+- `insight_batches` (migration 0010) is the SUBMIT→COLLECT bridge. Terminal states:
+  submitted → collected (results parsed + stored) or submitted → expired (batch
+  errored, or never ended within the 24h window — collect stops scanning it; those
+  users fall to computed tips). An infra failure must never look like "still
+  processing" forever. COLLECT keys off the PER-REQUEST result status first
+  (succeeded vs errored/canceled/expired), with the 24h wall-clock only as the
+  batch-level dead-man's switch.
+- COLLECT (`/api/cron/insights/collect`): for each ended batch, strip ```fences
+  UNCONDITIONALLY → JSON.parse → validate against the frozen insightsSchema. A
+  per-user failure (transport / bad custom_id / parse / schema) is skipped + logged
+  (custom_id only, never content) and NEVER aborts the batch — that user falls to
+  computed tips. Storage is idempotent: delete-then-insert per (user_id, date),
+  re-runs change nothing.
+- COLLECT-SIDE RELATIVE-WORD NET (belt-and-suspenders): after schema validation,
+  any /\b(today|tomorrow|yesterday)\b/i in ANY stored insight's title OR body drops
+  that user's ENTIRE set for the date (reason 'relative-word') → computed tips. A
+  relative word is schema-VALID, so nothing else catches it; this is the only grep
+  on the ACTUAL stored production output (the bench greps the bench; the
+  computed-tips unit test greps the fallback). The prompt can't be made perfectly
+  reliable — the re-bench measured a 1/30 slip.
+- computedTips (`web/src/lib/insights/computed-tips.ts`) is pure, deterministic, and
+  NO-LLM. It is BOTH the free-tier path AND the per-user paid fallback (failed/
+  missing/relative-word LLM output, or a pre-collect day). Same {type,title,body}
+  three-type shape (peak-window | meeting-load | streak) as the LLM, passing the
+  same insightsSchema, so the dashboard renders them identically. The dashboard is
+  compute-on-read: it shows stored LLM insight rows for the viewed day when present,
+  else computedTips — and there is NO LLM call anywhere in the dashboard request
+  path (grep-verified; computedTips is sync).
+- `insights` table (migration 0011): id, user_id, date, type, title, body,
+  created_at; RLS read-own (the dashboard's session-client read), service-role
+  write-only (COLLECT). 2–3 rows per (user, date); the schema bounds (title ≤ 60,
+  body ≤ 280, 2–3 insights, three types) are a CARD-LAYOUT constraint, not loosened
+  — the prompt was tightened for brevity instead after a re-bench length regression.
+- COST: the worker gets the Batch API −50% and Haiku 4.5. Prompt caching does NOT
+  fire — the ~400-token coach prompt is below Haiku's 4096-token cache minimum, so
+  it's batch-discount only. Expected, not a bug; don't add cache_control expecting
+  savings at this prompt size.
+
 ## Known issues / debt
 
 - Phase 4b Tests 8 and 9 were verified by code inspection
@@ -323,8 +414,12 @@ surveillance — that shapes the architecture.
   message still undercount its service-role reads as 2 (it's 3 — see entry #5).
   The code is correct and pinned; fix the docs opportunistically.
 
-## Pre-Phase-5 gates (do before the Phase 5 cron goes live)
+## Phase 5 gates (CLEARED)
 
+- Anthropic cost control — CLEARED: the worker uses the Batch API (−50%) + Haiku
+  4.5. Prompt caching does NOT fire (the ~400-token prompt is under Haiku's
+  4096-token cache minimum), so it's batch-discount only — expected, not a bug
+  (see the Phase 5 section).
 - Paid-gate mechanism: a DELIBERATE MANUAL STUB now exists — `users.is_paid`
   (boolean not null default false), migration 0009. It is a flag the operator
   flips by hand in SQL / service-role to mark a paying account; Phase 5's cron
@@ -342,10 +437,11 @@ surveillance — that shapes the architecture.
 
 ## Current phase
 
-See the CURRENT PHASE block at the top — that's the live one. Phases 1–4 are done
-and merged to main (Phase 4 via merge 9895b4a). Phase 5 (AI insights) is next and
-has only a placeholder card in the dashboard — don't build features ahead of it,
-and clear the Pre-Phase-5 gates above before the cron goes live.
+See the CURRENT PHASE block at the top — that's the live one. Phases 1–5 are done
+and merged to main (Phase 4 via merge 9895b4a, Phase 5 via merge 0765749). Phase 5
+is COMPLETE but NOT DEPLOYED — go-live is deferred to Phase 8 (see the top block);
+do not assume the crons are running or deploy them early. Phase 6 (manager / team
+view) is next per the playbook.
 
 ## Commands
 
