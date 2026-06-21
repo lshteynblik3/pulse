@@ -52,7 +52,7 @@ export interface InsightContext {
   /**
    * The user's next working day after the coached day (computed by the route via
    * resolveNextWorkingDay, which skips weekends + vacations). Rendered as a
-   * weekday name so the coach can say "going into Monday" instead of "tomorrow".
+   * weekday name so the coach can say "on Monday" instead of "tomorrow".
    */
   nextWorkingDate: string;
 }
@@ -70,21 +70,22 @@ export function formatHour(h: number): string {
 function streakLine(streak: Streak): string {
   if (streak.endReason === 'no_history') return 'Current streak: none yet';
   if (streak.endReason === 'active') return `Current streak: ${streak.count} working days (active)`;
-  // A streak that just ended (low_score / missing_data).
-  const on = streak.endedOn ? ` on ${streak.endedOn}` : '';
+  // A streak that just ended (low_score / missing_data). No date: the coached day
+  // is already named at top via "Day coached", and a streak-end date would inject
+  // a third day the coaching doesn't need (computedTips drops it too, for parity).
   const why = streak.endReason === 'low_score' ? ' after a low-scoring day' : ' after a day with no data';
-  return `Current streak: none right now — a streak ended${on}${why}`;
+  return `Current streak: none right now — a streak ended${why}`;
 }
 
 /** Build the labelled-plain-lines user message for one user's day. */
 export function buildInsightsUserMessage(summary: DailySummary, context: InsightContext): string {
   const focusMin =
-    summary.focusMinutes === 0 ? 'none — no focused time tracked today' : `${summary.focusMinutes}`;
+    summary.focusMinutes === 0 ? 'none — no focused time tracked' : `${summary.focusMinutes}`;
   const activeMin =
-    summary.activeMinutes === 0 ? 'none — almost no activity tracked today' : `${summary.activeMinutes}`;
+    summary.activeMinutes === 0 ? 'none — almost no activity tracked' : `${summary.activeMinutes}`;
   const blocks =
     summary.focusBlockCount === 0
-      ? 'none — no 25-minute deep-work blocks today'
+      ? 'none — no 25-minute deep-work blocks'
       : `${summary.focusBlockCount} blocks, ${summary.focusBlockMinutes} minutes total`;
   const meetings = summary.meetingMinutes === 0 ? 'none' : `${summary.meetingMinutes}`;
   const peaks =

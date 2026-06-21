@@ -92,18 +92,20 @@ describe('buildInsightsUserMessage', () => {
       context,
     );
 
-    expect(msg).toContain('Focus minutes: none — no focused time tracked today');
-    expect(msg).toContain('Active minutes: none — almost no activity tracked today');
-    expect(msg).toContain('Focus blocks: none — no 25-minute deep-work blocks today');
+    expect(msg).toContain('Focus minutes: none — no focused time tracked');
+    expect(msg).toContain('Active minutes: none — almost no activity tracked');
+    expect(msg).toContain('Focus blocks: none — no 25-minute deep-work blocks');
     expect(msg).toContain('Meeting minutes: none');
     expect(msg).toContain('Peak focus hours: not enough data yet');
     expect(msg).toContain('Current streak: none yet');
     expect(msg).toContain('This week average score: not enough data yet');
     expect(msg).toContain('Last week average score: not enough data yet');
     expect(msg).toContain('Week-over-week change: not enough data yet');
+    // The INPUT carries no relative words either (not just the model output).
+    expect(msg).not.toMatch(/\b(today|tomorrow|yesterday)\b/i);
   });
 
-  it('renders a just-broken streak with its end date and reason, no scolding', () => {
+  it('renders a just-broken streak by reason, no scolding and no raw ISO date', () => {
     const context: InsightContext = {
       peakHours: [{ hour: 16, focusMinutes: 20 }],
       streak: { count: 0, endedOn: '2026-06-15', endReason: 'low_score' },
@@ -112,7 +114,8 @@ describe('buildInsightsUserMessage', () => {
       nextWorkingDate: '2026-06-16',
     };
     const msg = buildInsightsUserMessage(summary(), context);
-    expect(msg).toContain('Current streak: none right now — a streak ended on 2026-06-15 after a low-scoring day');
+    expect(msg).toContain('Current streak: none right now — a streak ended after a low-scoring day');
+    expect(msg).not.toContain('2026-06-15'); // ISO end date dropped from the input
     expect(msg).toContain('Peak focus hours: 4pm (20 min)');
     expect(msg).toContain('Week-over-week change: -17');
   });
