@@ -1,7 +1,25 @@
 import { describe, it, expect } from 'vitest';
 import type { Category, DailySummary } from '@pulse/shared';
-import { buildInsightsUserMessage, type InsightContext } from './prompt';
+import { SYSTEM_PROMPT, buildInsightsUserMessage, type InsightContext } from './prompt';
 import { insightsSchema } from './schema';
+
+describe('SYSTEM_PROMPT temporal rule', () => {
+  it('references the named-day labels and forbids relative day words', () => {
+    expect(SYSTEM_PROMPT).toContain('"Day coached"');
+    expect(SYSTEM_PROMPT).toContain('"Next working day"');
+    expect(SYSTEM_PROMPT).toContain('NEVER write "today", "tomorrow", or "yesterday"');
+    expect(SYSTEM_PROMPT).toContain('numbers and named days you are given');
+  });
+
+  it('frames day-naming as replace-not-add and caps title/body length (regression fix)', () => {
+    // The replace clause is ADDITIONAL to the absolute prohibition, not a softening.
+    expect(SYSTEM_PROMPT).toContain('Put the weekday name in PLACE of the relative word');
+    expect(SYSTEM_PROMPT).toContain('replaces a word, never adds length');
+    // Explicit brevity targets matching the schema bounds (title 60 / body 280).
+    expect(SYSTEM_PROMPT).toContain('under 60 characters');
+    expect(SYSTEM_PROMPT).toContain('under 280 characters');
+  });
+});
 
 function categories(partial: Partial<Record<Category, number>> = {}): Record<Category, number> {
   return {
@@ -44,11 +62,14 @@ describe('buildInsightsUserMessage', () => {
       streak: { count: 8, endedOn: null, endReason: 'active' },
       thisWeekAvg: 78,
       lastWeekAvg: 72,
+      nextWorkingDate: '2026-06-16', // Tuesday (coached day 2026-06-15 is Monday)
     };
 
-    expect(buildInsightsUserMessage(summary(), context)).toBe(
+    const rendered = buildInsightsUserMessage(summary(), context);
+    expect(rendered).toBe(
       [
-        'Date: 2026-06-15 (working day)',
+        'Day coached: Monday',
+        'Next working day: Tuesday',
         'Focus minutes: 250',
         'Active minutes: 380',
         'Focus blocks: 4 blocks, 170 minutes total',
@@ -60,6 +81,11 @@ describe('buildInsightsUserMessage', () => {
         'Week-over-week change: +6',
       ].join('\n'),
     );
+    // Weekday names present, ISO "(working day)" date line gone.
+    expect(rendered).toContain('Day coached: Monday');
+    expect(rendered).toContain('Next working day: Tuesday');
+    expect(rendered).not.toContain('(working day)');
+    expect(rendered).not.toContain('2026-06-15');
   });
 
   it('spells absence in words on a thin-data day (no zeros leaking as real lows)', () => {
@@ -68,32 +94,37 @@ describe('buildInsightsUserMessage', () => {
       streak: { count: 0, endedOn: null, endReason: 'no_history' },
       thisWeekAvg: null,
       lastWeekAvg: null,
+      nextWorkingDate: '2026-06-16',
     };
     const msg = buildInsightsUserMessage(
       summary({ activeMinutes: 0, focusMinutes: 0, meetingMinutes: 0, focusBlockCount: 0, focusBlockMinutes: 0 }),
       context,
     );
 
-    expect(msg).toContain('Focus minutes: none — no focused time tracked today');
-    expect(msg).toContain('Active minutes: none — almost no activity tracked today');
-    expect(msg).toContain('Focus blocks: none — no 25-minute deep-work blocks today');
+    expect(msg).toContain('Focus minutes: none — no focused time tracked');
+    expect(msg).toContain('Active minutes: none — almost no activity tracked');
+    expect(msg).toContain('Focus blocks: none — no 25-minute deep-work blocks');
     expect(msg).toContain('Meeting minutes: none');
     expect(msg).toContain('Peak focus hours: not enough data yet');
     expect(msg).toContain('Current streak: none yet');
     expect(msg).toContain('This week average score: not enough data yet');
     expect(msg).toContain('Last week average score: not enough data yet');
     expect(msg).toContain('Week-over-week change: not enough data yet');
+    // The INPUT carries no relative words either (not just the model output).
+    expect(msg).not.toMatch(/\b(today|tomorrow|yesterday)\b/i);
   });
 
-  it('renders a just-broken streak with its end date and reason, no scolding', () => {
+  it('renders a just-broken streak by reason, no scolding and no raw ISO date', () => {
     const context: InsightContext = {
       peakHours: [{ hour: 16, focusMinutes: 20 }],
       streak: { count: 0, endedOn: '2026-06-15', endReason: 'low_score' },
       thisWeekAvg: 58,
       lastWeekAvg: 75,
+      nextWorkingDate: '2026-06-16',
     };
     const msg = buildInsightsUserMessage(summary(), context);
-    expect(msg).toContain('Current streak: none right now — a streak ended on 2026-06-15 after a low-scoring day');
+    expect(msg).toContain('Current streak: none right now — a streak ended after a low-scoring day');
+    expect(msg).not.toContain('2026-06-15'); // ISO end date dropped from the input
     expect(msg).toContain('Peak focus hours: 4pm (20 min)');
     expect(msg).toContain('Week-over-week change: -17');
   });

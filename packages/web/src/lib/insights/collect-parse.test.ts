@@ -4,8 +4,18 @@ import { BATCH_WINDOW_MS } from './config';
 
 const goodJson = JSON.stringify({
   insights: [
-    { type: 'peak-window', title: 'Your mornings', body: 'You focus best before noon — try guarding that window for deep work tomorrow.' },
+    { type: 'peak-window', title: 'Your mornings', body: 'You focus best before noon — try guarding that window for deep work on Monday.' },
     { type: 'streak', title: 'Nice run', body: 'You are stringing together strong days — keep showing up and it compounds.' },
+  ],
+});
+
+// Schema-VALID, but one insight's body carries a relative word (the prompt's 1/30
+// slip). The collect-side net must drop the WHOLE user, not just this insight.
+const relativeWordJson = JSON.stringify({
+  insights: [
+    { type: 'peak-window', title: 'Your mornings', body: 'You focus best before noon — protect that window for deep work.' },
+    { type: 'streak', title: 'Tomorrow is a fresh start', body: 'Your streak reset, which is normal — begin a new one and keep showing up.' },
+    { type: 'meeting-load', title: 'A clear calendar', body: 'No meetings, so you have a wide-open runway for focused, uninterrupted work.' },
   ],
 });
 
@@ -68,6 +78,37 @@ describe('collectBatchResults (per-request status is the primary signal)', () =>
   it('is deterministic — same input yields the same plan (data-layer idempotency)', () => {
     const input: RawBatchResult[] = [{ customId: `${uid}__2026-06-15`, status: 'succeeded', text: goodJson }];
     expect(collectBatchResults(input)).toEqual(collectBatchResults(input));
+  });
+
+  it('PART B: a schema-VALID set with a relative word in ONE insight drops the WHOLE user', () => {
+    // Guard: the relative-word fixture is itself schema-valid (so the skip is the
+    // relative-word net, not a schema failure).
+    expect(parseInsightResult(relativeWordJson)).not.toBeNull();
+
+    const results: RawBatchResult[] = [
+      { customId: `${uid}__2026-06-15`, status: 'succeeded', text: relativeWordJson }, // 3 insights, title[1] = "Tomorrow ..."
+      { customId: 'clean-user__2026-06-16', status: 'succeeded', text: goodJson }, // clean
+    ];
+    const { stored, skipped } = collectBatchResults(results);
+
+    // The relative-word user is dropped ENTIRELY (no rows) -> computed tips at read;
+    // not "2 stored + 1 dropped". The clean user is unaffected.
+    expect(stored.map((s) => s.userId)).toEqual(['clean-user']);
+    expect(skipped).toEqual([{ customId: `${uid}__2026-06-15`, reason: 'relative-word' }]);
+  });
+
+  it('PART B: catches the relative word in a TITLE, not just a body', () => {
+    // "Tomorrow is a fresh start" is a title (model free text) — body scan alone
+    // would miss it; the net scans title OR body across every insight.
+    const titleOnly = JSON.stringify({
+      insights: [
+        { type: 'streak', title: 'Tomorrow is a fresh start', body: 'Your streak reset, which is normal — just begin a new one and keep showing up.' },
+        { type: 'meeting-load', title: 'A clear calendar', body: 'No meetings, so you have a wide-open runway for focused, uninterrupted work.' },
+      ],
+    });
+    const { stored, skipped } = collectBatchResults([{ customId: `${uid}__2026-06-15`, status: 'succeeded', text: titleOnly }]);
+    expect(stored).toHaveLength(0);
+    expect(skipped).toEqual([{ customId: `${uid}__2026-06-15`, reason: 'relative-word' }]);
   });
 });
 

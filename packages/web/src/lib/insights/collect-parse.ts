@@ -10,6 +10,15 @@ import { insightsSchema } from './schema';
 import { parseCustomId } from './custom-id';
 import { BATCH_WINDOW_MS } from './config';
 
+/**
+ * Relative day words. The temporal rule forbids these, but a slip is schema-VALID
+ * (it's just text), so nothing else catches it — it's invisible-at-write and
+ * wrong-at-read. This is the ONLY grep on the actual stored production output
+ * (the bench greps the bench; the computedTips test greps the fallback). Belt-and-
+ * suspenders: the prompt can't be made perfectly reliable (re-bench showed 1/30).
+ */
+const RELATIVE = /\b(today|tomorrow|yesterday)\b/i;
+
 /** Strip a leading/trailing ```code fence``` if present. */
 function stripFences(text: string): string {
   const trimmed = text.trim();
@@ -54,7 +63,7 @@ export interface StoredInsight {
 
 export interface SkippedResult {
   customId: string;
-  reason: Exclude<BatchResultStatus, 'succeeded'> | 'bad-custom-id' | 'parse-or-schema';
+  reason: Exclude<BatchResultStatus, 'succeeded'> | 'bad-custom-id' | 'parse-or-schema' | 'relative-word';
 }
 
 /**
@@ -88,6 +97,14 @@ export function collectBatchResults(results: RawBatchResult[]): {
     const insights = r.text === null ? null : parseInsightResult(r.text);
     if (!insights) {
       skipped.push({ customId: r.customId, reason: 'parse-or-schema' });
+      continue;
+    }
+    // Belt-and-suspenders: a relative day word ANYWHERE in the schema-valid set
+    // (any insight's title OR body) drops the user's ENTIRE set for the date —
+    // they fall to computed tips at read, same as a schema failure. Whole-set,
+    // not just the offending insight; matches the bench's whole-output grep.
+    if (insights.some((i) => RELATIVE.test(i.title) || RELATIVE.test(i.body))) {
+      skipped.push({ customId: r.customId, reason: 'relative-word' });
       continue;
     }
     stored.push({ userId: id.userId, date: id.date, insights });
