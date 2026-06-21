@@ -40,6 +40,10 @@ const N = 5;
 const MAX_TRANSPORT_RETRIES = 3;
 const INTER_CALL_DELAY_MS = 250;
 
+/** Temporal gate: insights are read days later, so a relative day word in the
+ *  OUTPUT points at the wrong day. Any hit fails the gate. */
+const RELATIVE = /\b(today|tomorrow|yesterday)\b/i;
+
 type Outcome = 'schema-valid' | 'schema-invalid' | 'transport';
 type ParseCategory = 'clean' | 'fenced' | 'hard-invalid' | 'n/a';
 
@@ -50,6 +54,8 @@ interface RunRecord {
   transportMessage?: string;
   usage?: GenUsage;
   cost?: number;
+  /** Whether the raw output contains a relative day word (today/tomorrow/yesterday). */
+  relativeWords?: boolean;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -150,18 +156,19 @@ async function main() {
         }
 
         const cost = costOf(result.usage, provider.pricing);
+        const relativeWords = RELATIVE.test(result.text);
         const { parsed, category } = parseRaw(result.text);
 
         if (parsed === null) {
-          runs.push({ outcome: 'schema-invalid', parseCategory: 'hard-invalid', rawText: result.text, usage: result.usage, cost });
+          runs.push({ outcome: 'schema-invalid', parseCategory: 'hard-invalid', rawText: result.text, usage: result.usage, cost, relativeWords });
           console.log('schema-invalid (hard-invalid)');
         } else {
           const sp = insightsSchema.safeParse(parsed);
           if (sp.success) {
-            runs.push({ outcome: 'schema-valid', parseCategory: category, rawText: result.text, usage: result.usage, cost });
-            console.log(`schema-valid (${category})`);
+            runs.push({ outcome: 'schema-valid', parseCategory: category, rawText: result.text, usage: result.usage, cost, relativeWords });
+            console.log(`schema-valid (${category})${relativeWords ? ' [RELATIVE-WORD]' : ''}`);
           } else {
-            runs.push({ outcome: 'schema-invalid', parseCategory: category, rawText: result.text, usage: result.usage, cost });
+            runs.push({ outcome: 'schema-invalid', parseCategory: category, rawText: result.text, usage: result.usage, cost, relativeWords });
             console.log(`schema-invalid (${category})`);
           }
         }
@@ -186,6 +193,7 @@ async function main() {
     pad('clean', 6),
     pad('fenced', 7),
     pad('hard', 5),
+    pad('relWd', 6),
     pad('inTok', 7),
     pad('outTok', 7),
     pad('$/run', 10),
@@ -204,6 +212,7 @@ async function main() {
       const clean = runs.filter((r) => r.parseCategory === 'clean').length;
       const fenced = runs.filter((r) => r.parseCategory === 'fenced').length;
       const hard = runs.filter((r) => r.parseCategory === 'hard-invalid').length;
+      const relWd = runs.filter((r) => r.relativeWords).length;
       const scored = runs.filter((r) => r.usage);
       const avgIn = scored.length
         ? Math.round(scored.reduce((s, r) => s + (r.usage!.inputTokens + r.usage!.cacheReadTokens + r.usage!.cacheWriteTokens), 0) / scored.length)
@@ -222,6 +231,7 @@ async function main() {
           pad(String(clean), 6),
           pad(String(fenced), 7),
           pad(String(hard), 5),
+          pad(String(relWd), 6),
           pad(String(avgIn), 7),
           pad(String(avgOut), 7),
           pad(`$${avgCost.toFixed(6)}`, 10),
@@ -253,6 +263,26 @@ async function main() {
       });
     }
   }
+
+  // ---- Relative-words gate (the temporal gate) ----
+  console.log('\n\n===== RELATIVE-WORDS GATE =====');
+  console.log('Any model output containing "today", "tomorrow", or "yesterday" FAILS the gate.\n');
+  let relHits = 0;
+  for (const provider of present) {
+    for (const fixture of FIXTURES) {
+      const runs = results.get(`${provider.key}::${fixture.key}`) ?? [];
+      runs.forEach((r, i) => {
+        if (r.outcome === 'transport') return;
+        const m = r.rawText.match(RELATIVE);
+        if (m) {
+          relHits++;
+          console.log(`[${provider.key}] ${fixture.key} run ${i + 1}: contains "${m[0]}"`);
+        }
+      });
+    }
+  }
+  if (relHits === 0) console.log('>>> CLEAN — zero relative day words in any output.');
+  else console.log(`\n>>> ${relHits} output(s) contain a relative day word — TEMPORAL GATE FAILED.`);
 
   console.log('\nDone.\n');
 }

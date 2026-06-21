@@ -18,8 +18,9 @@ import type { Category, DailySummary, PeakHour, Streak } from '@pulse/shared';
 export interface BenchContext {
   /** Active streak, or null when there's no history at all. */
   streak: Streak | null;
-  /** For a just-broken streak: the length (in days) that ended. Grounds the "streak" insight. */
-  priorStreakDays?: number;
+  /** The next working day after the coached day (summary.date), as YYYY-MM-DD —
+   *  rendered as a weekday name, mirroring production. */
+  nextWorkingDate: string;
   /** Avg working-day score this week, or null when there's no baseline yet. */
   thisWeekAvg: number | null;
   /** Avg working-day score last week, or null when there's no baseline yet. */
@@ -79,6 +80,7 @@ export const FIXTURES: BenchFixture[] = [
     },
     context: {
       streak: { count: 8, endedOn: null, endReason: 'active' },
+      nextWorkingDate: '2026-06-16', // Monday-coached -> Tuesday
       thisWeekAvg: 78,
       lastWeekAvg: 72,
       peakHours: [
@@ -107,6 +109,7 @@ export const FIXTURES: BenchFixture[] = [
     context: {
       // History exists (established user); today simply hasn't broken the run yet.
       streak: { count: 5, endedOn: null, endReason: 'active' },
+      nextWorkingDate: '2026-06-16',
       thisWeekAvg: 66,
       lastWeekAvg: 70,
       peakHours: [
@@ -134,6 +137,7 @@ export const FIXTURES: BenchFixture[] = [
     context: {
       // Nothing to compare against yet — every history-derived field is absent.
       streak: null,
+      nextWorkingDate: '2026-06-16',
       thisWeekAvg: null,
       lastWeekAvg: null,
       peakHours: [],
@@ -157,7 +161,7 @@ export const FIXTURES: BenchFixture[] = [
     },
     context: {
       streak: { count: 0, endedOn: DATE, endReason: 'low_score' },
-      priorStreakDays: 11,
+      nextWorkingDate: '2026-06-16',
       thisWeekAvg: 58,
       lastWeekAvg: 75,
       peakHours: [
@@ -184,6 +188,7 @@ export const FIXTURES: BenchFixture[] = [
     },
     context: {
       streak: { count: 23, endedOn: null, endReason: 'active' },
+      nextWorkingDate: '2026-06-16',
       thisWeekAvg: 88,
       lastWeekAvg: 85,
       peakHours: [
@@ -195,10 +200,10 @@ export const FIXTURES: BenchFixture[] = [
   },
   {
     key: 'five-hour-meeting-day',
-    label: 'Five-hour-meeting day',
+    label: 'Five-hour-meeting day (Friday — next working day is Monday)',
     summary: {
       userId: USER,
-      date: DATE,
+      date: '2026-06-12', // Friday — exercises the weekend skip to Monday
       activeMinutes: 360,
       focusMinutes: 120,
       meetingMinutes: 300,
@@ -211,6 +216,7 @@ export const FIXTURES: BenchFixture[] = [
     },
     context: {
       streak: { count: 4, endedOn: null, endReason: 'active' },
+      nextWorkingDate: '2026-06-15', // Friday-coached -> Monday (weekend skipped)
       thisWeekAvg: 70,
       lastWeekAvg: 72,
       peakHours: [
