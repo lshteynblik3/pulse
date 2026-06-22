@@ -8,9 +8,94 @@ import styles from './team.module.css';
 /**
  * The manager's team view body. Like the dashboard client, "today" originates
  * HERE from the browser's local clock (never the server's, never toISOString) and
- * is sent to the endpoint as ?date=. The endpoint re-authorizes the teamId; this
- * component only renders what it returns.
+ * is sent to the endpoints as ?date=. The endpoints re-authorize the teamId; this
+ * component only renders what they return.
  *
+ * Renders TWO independent sections: Recognition (sparse positive cards) and the
+ * Aggregate (team averages). They load separately so one failing never blanks the
+ * other.
+ */
+export default function TeamClient({ teamId }: { teamId: string }) {
+  const [today] = useState(() => localDateString(new Date()));
+  return (
+    <>
+      <RecognitionSection teamId={teamId} date={today} />
+      <AggregateSection teamId={teamId} date={today} />
+    </>
+  );
+}
+
+/**
+ * Recognition cards. The GET is a pure read (prefetch-safe). After cards RENDER,
+ * an effect POSTs their event_keys to /ack — that write is what notifies the named
+ * employees, so the notification happens exactly because the manager saw the card
+ * (the saw ⟹ told half of the biconditional). The ack is best-effort/idempotent: a
+ * dropped POST just means no notify for this view, never a duplicate.
+ */
+interface RecognitionCard {
+  eventKey: string;
+  type: string;
+  name: string;
+  eventDate: string;
+  title: string;
+  body: string;
+}
+
+function RecognitionSection({ teamId, date }: { teamId: string; date: string }) {
+  // null = still loading; an array (possibly empty) = loaded. Errors resolve to []
+  // because recognition is additive — a blip shows the calm empty state, not a crash.
+  const [cards, setCards] = useState<RecognitionCard[] | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/teams/${teamId}/recognition?date=${date}`, { signal: controller.signal })
+      .then((res) => (res.ok ? (res.json() as Promise<{ cards: RecognitionCard[] }>) : Promise.reject()))
+      .then((data) => setCards(data.cards))
+      .catch(() => setCards((prev) => prev ?? []));
+    return () => controller.abort();
+  }, [teamId, date]);
+
+  useEffect(() => {
+    if (!cards || cards.length === 0) return;
+    fetch(`/api/teams/${teamId}/recognition/ack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, eventKeys: cards.map((c) => c.eventKey) }),
+      keepalive: true, // survive a quick navigation away
+    }).catch(() => {});
+  }, [cards, teamId, date]);
+
+  if (cards === null) return null; // quiet while loading
+
+  if (cards.length === 0) {
+    // The NORM. Phrased so it never reads as "everyone's underperforming".
+    return (
+      <section className={styles.card}>
+        <h2 className={styles.sectionTitle}>Recognition</h2>
+        <p className={styles.muted}>No new highlights to recognize this week.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className={styles.card}>
+      <h2 className={styles.sectionTitle}>Recognition</h2>
+      <p className={styles.muted}>
+        Highlights worth acknowledging. Each team member is told when you&apos;re shown theirs.
+      </p>
+      <ul className={styles.recognitionList}>
+        {cards.map((c) => (
+          <li key={c.eventKey} className={styles.recognitionItem}>
+            <h3 className={styles.recognitionTitle}>{c.title}</h3>
+            <p className={styles.recognitionBody}>{c.body}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
  * Two ready states off the discriminant: `populated` (the stat cards) and
  * `suppressed` (the rule, nothing numeric). A 403 shouldn't happen — the page
  * only mounts this for the manager's own team — but is handled as a plain error.
@@ -20,8 +105,7 @@ type LoadState =
   | { status: 'error' }
   | { status: 'ready'; result: TeamAggregateResult };
 
-export default function TeamClient({ teamId }: { teamId: string }) {
-  const [today] = useState(() => localDateString(new Date()));
+function AggregateSection({ teamId, date: today }: { teamId: string; date: string }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const inFlight = useRef<AbortController | null>(null);
 

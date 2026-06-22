@@ -129,10 +129,13 @@ surveillance — that shapes the architecture.
   over the paid roster (MANY users), but CRON_SECRET-gated (only Vercel's
   scheduler can invoke them) and every per-user read/write pinned to a legitimate
   target (a paid-roster member, or the user encoded in a batch result's custom_id).
-  Entry 9 is the Phase 6 team-aggregate endpoint — session-authed and
-  manages-gated (NOT a cron): it touches MANY users (a team's members) but only
-  after canManageTeam authorizes the session manager for that exact team, and it
-  returns team-level aggregates only, never an individual member's row:
+  Entries 9–10 are the Phase 6 team endpoints — session-authed and manages-gated
+  (NOT crons): each touches MANY users (a team's members) but only after
+  canManageTeam authorizes the session manager for that exact team. #9 returns
+  team-level aggregates only (never an individual row); #10 is the recognition
+  pair — a pure-read GET (cards) plus the POST /ack that WRITES another user's
+  notification row, pinned to a recipient verified on the managed team, and only
+  for a re-derived real event:
     1. /api/devices/pair/consume — pairing-code claim UPDATE + device_tokens
        INSERT (no session exists at pairing time).
     2. The shared device-token auth helper (`web/src/lib/devices/auth.ts`):
@@ -175,6 +178,20 @@ surveillance — that shapes the architecture.
        taken unchecked from the request. Returns team-level aggregates only, gated
        by the k=3 reporting-member floor; NEVER an individual member's row, score,
        or identifier to the client.
+    10. /api/teams/[teamId]/recognition (Phase 6) — the recognition pair,
+       session-authed + manages-gated (canManageTeam runs FIRST on both verbs).
+       GET is a PURE READ (cards), service-role roster/member reads like #9, WRITES
+       NOTHING — safe to prefetch. POST /ack is the WRITER: it re-derives the team's
+       current events server-side (never trusts the body), then idempotently INSERTs
+       (upsert ON CONFLICT (recipient_id, event_key) DO NOTHING) a 'recognition'
+       notification for each requested key that matches a REAL current event —
+       recipient pinned to a member of the verified-managed team, actor_id = the
+       session manager. A fabricated/foreign/stale key writes nothing. This GET/POST
+       split makes manager-saw ⟺ employee-told a biconditional (the notify exists
+       only because cards rendered, and only via /ack). NO k-anonymity floor on
+       recognition (unlike #9's aggregates): it's not silent — it notifies the named
+       person — so the notify replaces the floor. The notifications READ
+       (GET /api/notifications) is SESSION-client/RLS read-own, NOT here.
   Everything else runs on the user's session client under RLS (the dashboard's
   insights read included).
 - Known issue (accepted, not solved in 4b): if a user pairs two devices, the

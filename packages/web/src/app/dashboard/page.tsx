@@ -38,6 +38,9 @@ export default async function DashboardPage() {
           <>
             <span className={styles.identity}>{user.email}</span>
             <span className={styles.topLinks}>
+              {/* Primary home for "you've been told": the person being notified must
+                  see the link where they already are every day. */}
+              <Link href="/notifications">Notifications</Link>
               {/* Two vestigial nav buttons collapsed into one — /settings already
                   consolidates account/devices/work-schedule as anchored sections. */}
               <Link href="/settings">Settings</Link>

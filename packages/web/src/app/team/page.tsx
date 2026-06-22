@@ -49,6 +49,7 @@ export default async function TeamPage() {
         <span className={styles.identity}>{user.email}</span>
         <span className={styles.topLinks}>
           <Link href="/dashboard">My dashboard</Link>
+          <Link href="/notifications">Notifications</Link>
           <Link href="/settings">Settings</Link>
         </span>
       </nav>

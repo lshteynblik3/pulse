@@ -143,6 +143,34 @@
   color: #9b97a6;
 }
 
+/* Recognition cards — sparse, celebratory, a quiet positive accent. No red. */
+.recognitionList {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.recognitionItem {
+  border: 1px solid #e9e5dd;
+  border-left: 3px solid #6d4fe5;
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: #fcfbff;
+}
+.recognitionTitle {
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 17px;
+  font-weight: 600;
+}
+.recognitionBody {
+  margin: 3px 0 0;
+  color: #4a4754;
+  font-size: 14px;
+}
+
 .retry {
   margin-top: 14px;
   padding: 8px 16px;
