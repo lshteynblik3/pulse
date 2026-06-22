@@ -1,0 +1,159 @@
+/*
+ * /team — the manager's team view. Reuses the dashboard's "calm coach" language:
+ * warm paper ground, one purple accent, the serif display face for big numerals,
+ * generous spacing, NO red anywhere (a team average is never a reprimand).
+ */
+
+.page {
+  min-height: 100vh;
+  padding: 40px 24px 72px;
+  background:
+    radial-gradient(1100px 520px at 85% -10%, rgba(109, 79, 229, 0.07), transparent 60%),
+    #faf9f6;
+  color: #211f2a;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.topBar {
+  max-width: 880px;
+  margin: 0 auto 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+}
+.identity {
+  color: #6f6b7a;
+}
+.topLinks {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.topLinks a {
+  color: #533bc4;
+  font-weight: 600;
+  text-decoration: none;
+}
+.topLinks a:hover {
+  text-decoration: underline;
+}
+
+.shell {
+  max-width: 880px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.shell > * {
+  animation: rise 420ms ease both;
+}
+.shell > *:nth-child(2) { animation-delay: 50ms; }
+.shell > *:nth-child(3) { animation-delay: 100ms; }
+.shell > *:nth-child(4) { animation-delay: 150ms; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.kicker {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6d4fe5;
+}
+.heading {
+  margin: 2px 0 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.subhead {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #9b97a6;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e9e5dd;
+  border-radius: 14px;
+  padding: 22px 24px;
+  box-shadow: 0 1px 2px rgba(33, 31, 42, 0.04);
+}
+.sectionTitle {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6f6b7a;
+}
+.muted {
+  margin: 0;
+  color: #6f6b7a;
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+.stat {
+  background: #fff;
+  border: 1px solid #e9e5dd;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 2px rgba(33, 31, 42, 0.04);
+}
+.statLabel {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6f6b7a;
+}
+.statValue {
+  margin: 4px 0 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #6d4fe5;
+}
+.statDetail {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: #6f6b7a;
+}
+
+/* The honest "what this average is over" line — present, by design, on populated. */
+.reportingLine {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: #9b97a6;
+}
+
+.retry {
+  margin-top: 14px;
+  padding: 8px 16px;
+  border: 1px solid #d8d2e8;
+  border-radius: 10px;
+  background: #fff;
+  color: #533bc4;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.retry:hover {
+  background: #f6f4fd;
+}

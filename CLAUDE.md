@@ -128,7 +128,11 @@ surveillance — that shapes the architecture.
   the Phase 5 CRON batch jobs — the deliberate exception: no session, operating
   over the paid roster (MANY users), but CRON_SECRET-gated (only Vercel's
   scheduler can invoke them) and every per-user read/write pinned to a legitimate
-  target (a paid-roster member, or the user encoded in a batch result's custom_id):
+  target (a paid-roster member, or the user encoded in a batch result's custom_id).
+  Entry 9 is the Phase 6 team-aggregate endpoint — session-authed and
+  manages-gated (NOT a cron): it touches MANY users (a team's members) but only
+  after canManageTeam authorizes the session manager for that exact team, and it
+  returns team-level aggregates only, never an individual member's row:
     1. /api/devices/pair/consume — pairing-code claim UPDATE + device_tokens
        INSERT (no session exists at pairing time).
     2. The shared device-token auth helper (`web/src/lib/devices/auth.ts`):
@@ -159,6 +163,18 @@ surveillance — that shapes the architecture.
        ("<userId>__<date>"). This writes the stored LLM insights. The dashboard
        READS insights under the SESSION client (RLS read-own), NOT here — so a
        user can only ever read their own.
+    9. /api/teams/[teamId]/aggregate (Phase 6) — service-role, SESSION-authed +
+       manages-gated. The manager's identity comes from auth.getUser() (never the
+       body); authorization is canManageTeam(admin, sessionUserId, teamId), which
+       403s any team the session user doesn't manage. AUTHORIZATION RUNS FIRST,
+       before any team data is read. Service-role reads (managers have no blanket
+       RLS read on member rows — that's the design): the team roster (users where
+       team_id = teamId) and each rostered member's daily_summaries window +
+       work_schedules (via getWorkSchedule(admin, memberId)) — every read pinned to
+       a member of a team the session user is VERIFIED to manage, never a team/user
+       taken unchecked from the request. Returns team-level aggregates only, gated
+       by the k=3 reporting-member floor; NEVER an individual member's row, score,
+       or identifier to the client.
   Everything else runs on the user's session client under RLS (the dashboard's
   insights read included).
 - Known issue (accepted, not solved in 4b): if a user pairs two devices, the
