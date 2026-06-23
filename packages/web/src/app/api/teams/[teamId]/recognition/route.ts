@@ -59,6 +59,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ team
     // the member's name + the manager-facing copy. No write happens here.
     const cards = events.map((e) => ({
       eventKey: e.eventKey,
+      // recipientId lets the manager drill into THIS member's detail (the only
+      // entry point — see /api/members/[memberId]/view). The manager manages the
+      // team, so the member id is theirs to act on.
+      recipientId: e.recipientId,
       type: e.type,
       name: e.name,
       eventDate: e.eventDate,

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TeamAggregateResult } from '@/lib/teams/aggregate';
-import { displayScore, formatMinutes, localDateString } from '@/lib/dashboard/format';
+import type { MemberDetailPayload } from '@/lib/teams/member-detail';
+import { displayScore, formatMinutes, localDateString, percentLabel } from '@/lib/dashboard/format';
 import styles from './team.module.css';
 
 /**
@@ -34,6 +35,7 @@ export default function TeamClient({ teamId }: { teamId: string }) {
  */
 interface RecognitionCard {
   eventKey: string;
+  recipientId: string;
   type: string;
   name: string;
   eventDate: string;
@@ -85,13 +87,129 @@ function RecognitionSection({ teamId, date }: { teamId: string; date: string }) 
       </p>
       <ul className={styles.recognitionList}>
         {cards.map((c) => (
-          <li key={c.eventKey} className={styles.recognitionItem}>
-            <h3 className={styles.recognitionTitle}>{c.title}</h3>
-            <p className={styles.recognitionBody}>{c.body}</p>
-          </li>
+          <RecognitionCardRow key={c.eventKey} card={c} date={date} />
         ))}
       </ul>
     </section>
+  );
+}
+
+/**
+ * One recognition card + the ONLY drill-in entry point (Option A). "View activity"
+ * is a deliberate click that POSTs /api/members/[id]/view — which logs the access
+ * and notifies the member. There is no per-member roster anywhere; a manager can
+ * only drill into a member who currently has a positive recognition event.
+ */
+function RecognitionCardRow({ card, date }: { card: RecognitionCard; date: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className={styles.recognitionItem}>
+      <h3 className={styles.recognitionTitle}>{card.title}</h3>
+      <p className={styles.recognitionBody}>{card.body}</p>
+      <button
+        type="button"
+        className={styles.viewActivity}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? 'Hide activity' : `View ${card.name}'s activity →`}
+      </button>
+      {/* Mounted ONLY after the explicit click — the POST (and its log+notify)
+          never fires on render/prefetch. */}
+      {open && <MemberDetail memberId={card.recipientId} name={card.name} date={date} />}
+    </li>
+  );
+}
+
+type DetailState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'ready'; detail: MemberDetailPayload };
+
+function MemberDetail({ memberId, name, date }: { memberId: string; name: string; date: string }) {
+  const [state, setState] = useState<DetailState>({ status: 'loading' });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    // The deliberate view: a POST (never a GET), so this can't be prefetched.
+    fetch(`/api/members/${memberId}/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date }),
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? (res.json() as Promise<MemberDetailPayload>) : Promise.reject()))
+      .then((detail) => setState({ status: 'ready', detail }))
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setState({ status: 'error' });
+      });
+    return () => controller.abort();
+  }, [memberId, date]);
+
+  if (state.status === 'loading') return <p className={styles.detailMuted}>Opening {name}&apos;s activity…</p>;
+  if (state.status === 'error')
+    return <p className={styles.detailMuted}>Couldn&apos;t open this member right now.</p>;
+
+  const d = state.detail;
+  return (
+    <div className={styles.detailPanel}>
+      <p className={styles.detailNotice}>{name} has been notified that you viewed this.</p>
+
+      {!d.isWorkingDay ? (
+        <p className={styles.detailMuted}>Not a working day — no score, and that&apos;s fine.</p>
+      ) : !d.hasData ? (
+        <p className={styles.detailMuted}>No data for this day yet.</p>
+      ) : (
+        <>
+          <div className={styles.detailScoreRow}>
+            <span className={styles.detailScore}>{d.displayScore}</span>
+            <span className={styles.gaugeOutOf}>focus score</span>
+          </div>
+          {d.breakdown && (
+            <ul className={styles.detailBreakdown}>
+              {(
+                [
+                  ['Focus ratio', d.breakdown.focusRatio],
+                  ['Deep-work blocks', d.breakdown.blockScore],
+                  ['Meeting balance', d.breakdown.meetingBalance],
+                  ['Consistency', d.breakdown.consistency],
+                ] as [string, number][]
+              ).map(([label, value]) => (
+                <li key={label}>
+                  <span>{label}</span>
+                  <div className={styles.detailMeter}>
+                    <div className={styles.detailMeterFill} style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />
+                  </div>
+                  <span className={styles.detailPct}>{percentLabel(Math.max(0, Math.min(1, value)))}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+
+      {d.focus && (
+        <div className={styles.detailFocusStats}>
+          <span>{formatMinutes(d.focus.focusMinutes)} focused</span>
+          <span>
+            {d.focus.focusBlockCount} block{d.focus.focusBlockCount === 1 ? '' : 's'} ·{' '}
+            {formatMinutes(d.focus.focusBlockMinutes)}
+          </span>
+        </div>
+      )}
+
+      {d.strengths.length > 0 && (
+        <div className={styles.detailStrengths}>
+          <p className={styles.detailStrengthsLabel}>What&apos;s working</p>
+          <ul>
+            {d.strengths.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -129,13 +129,14 @@ surveillance — that shapes the architecture.
   over the paid roster (MANY users), but CRON_SECRET-gated (only Vercel's
   scheduler can invoke them) and every per-user read/write pinned to a legitimate
   target (a paid-roster member, or the user encoded in a batch result's custom_id).
-  Entries 9–10 are the Phase 6 team endpoints — session-authed and manages-gated
-  (NOT crons): each touches MANY users (a team's members) but only after
-  canManageTeam authorizes the session manager for that exact team. #9 returns
-  team-level aggregates only (never an individual row); #10 is the recognition
-  pair — a pure-read GET (cards) plus the POST /ack that WRITES another user's
-  notification row, pinned to a recipient verified on the managed team, and only
-  for a re-derived real event:
+  Entries 9–11 are the Phase 6 team endpoints — session-authed and manages-gated
+  (NOT crons): each touches OTHER users but only after a manages check authorizes
+  the session manager. #9–10 use canManageTeam: #9 returns team-level aggregates
+  only (never an individual row); #10 is the recognition pair — a pure-read GET
+  (cards) plus the POST /ack that WRITES another user's notification, pinned to a
+  recipient verified on the managed team, only for a re-derived real event. #11 is
+  the drill-in — the FIRST consumer of canManageUser (the per-USER check) and the
+  ONLY path that exposes an individual member's real metrics to a manager:
     1. /api/devices/pair/consume — pairing-code claim UPDATE + device_tokens
        INSERT (no session exists at pairing time).
     2. The shared device-token auth helper (`web/src/lib/devices/auth.ts`):
@@ -192,6 +193,23 @@ surveillance — that shapes the architecture.
        recognition (unlike #9's aggregates): it's not silent — it notifies the named
        person — so the notify replaces the floor. The notifications READ
        (GET /api/notifications) is SESSION-client/RLS read-own, NOT here.
+    11. POST /api/members/[memberId]/view (Phase 6 drill-in) — service-role,
+       session-authed + canManageUser-gated (the per-USER manages check, FIRST
+       consumer of it; runs FIRST, before ANY member-data read). The ONLY path that
+       exposes an individual member's real metrics to a manager. A DELIBERATE POST
+       only — the route exports NO GET, so prefetch/unfurl (GET-only) can never
+       trigger a logged view. Strict order: gate → READ+ASSEMBLE in memory → write
+       access_logs (ONE row per view) → write the access notification (type='access',
+       COALESCED one-per-manager-per-member-per-day via event_key
+       access:<managerId>:<targetId>:<date> + ON CONFLICT DO NOTHING) → ONLY THEN
+       serve. A write failure ⇒ 500, no detail. Read precedes the writes so a
+       member-data read error 500s with NO log/notify (no false "your manager viewed
+       you"); the detail still never crosses the wire until both writes are durable.
+       NO-DATA still logs+notifies (a deliberate view occurred). Serves score + the
+       four breakdown components + focus detail (focus minutes/blocks/hourly) +
+       positive strengths — NEVER the coaching insights, NEVER categoryBreakdown
+       (payload assembled field-by-field; insights table never queried). The
+       access_logs READ is session-client/RLS read-own (viewed_user_id), NOT here.
   Everything else runs on the user's session client under RLS (the dashboard's
   insights read included).
 - Known issue (accepted, not solved in 4b): if a user pairs two devices, the
