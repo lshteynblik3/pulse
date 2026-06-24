@@ -1,19 +1,36 @@
 # CLAUDE.md
-CURRENT PHASE: Phase 5 (AI insights) COMPLETE and merged to main via
-the --no-ff merge commit 0765749. It is NOT DEPLOYED, and that is
-DELIBERATE: go-live — apply migrations 0010 + 0011 to the prod
-Supabase DB, set ANTHROPIC_API_KEY + CRON_SECRET on Vercel, and deploy
-so Vercel schedules the two crons — is DEFERRED to Phase 8, where the
-playbook sequences deploy together with billing + monitoring (Vercel
-isn't set up yet). The worker is proven by a LOCAL live-fire run
-against the real Anthropic API (the throwaway insights-bench: 30/30
-schema-valid, zero relative-time words on the tightened prompt), NOT
-by any scheduled prod run. Do NOT assume Phase 5 is live, and do NOT
-deploy it ahead of Phase 8.
+CURRENT PHASE: Phase 6 (manager / team view) — manager-facing surface
+COMPLETE and merged to main via the --no-ff merge of phase-6-drill-in. The
+team aggregate, recognition prompts, and manager drill-in are all on main.
+ONE Phase-6 piece remains: team-level AI insights (paid). NOT DEPLOYED —
+go-live stays deferred to Phase 8 (same as Phase 5).
 
-Next up is Phase 6 (manager / team view) per the playbook: orgs,
-teams, roles (member/manager/admin), team-level aggregates, and
-access-logging + notify-on-view.
+PHASE-6 MERGE TOPOLOGY: four commits were built as a LINEAR STACK, each
+branched off the previous, and merged to main as ONE --no-ff bubble (the
+stack was one coherent phase). In order: phase-6-teams-foundation (bc86eaf,
+orgs/teams/manages/RLS) → phase-6-team-aggregate (09e1735, aggregate + k=3
+floor) → phase-6-recognition (6a0c478, recognition + notifications 0013 +
+the GET-read/POST-ack split) → phase-6-drill-in (1906d4f, drill-in +
+access_logs 0014). Merge commit 9b1f6ee. All four branches kept, none
+deleted. The four commit hashes are reachable under the single merge commit.
+
+PHASE-6 AUTHORIZATION MODEL (the spine — read before any team-data work):
+Managers have NO blanket RLS read on member rows. Every manager read goes
+through a narrow service-role endpoint, session-authed, gated by the
+`manages` TypeScript helpers (canManageUser / canManageTeam, commit 1) which
+run BEFORE any member read. The manages relationship is the single
+authorization source of truth. Role/team_id/org_id on users are
+service-role-write-only (the is_paid column-grant allowlist discipline) — a
+member cannot self-promote. Three privacy invariants are STRUCTURAL, not
+conventional: (1) team aggregates suppressed below k=3 REPORTING members
+(fixed system constant, never a setting — the manager the floor protects
+against must not control it); (2) recognition is positive-only, sparse, and
+manager-saw ⟺ employee-told (a card shows only via a render-time POST that
+writes the notify; no prefetchable GET writes); (3) drill-in is the ONLY
+path to an individual's real metrics — POST-only (no prefetchable GET),
+canManageUser-gated, read→log→notify→serve so detail never crosses the wire
+without a durable access_logs row + access notification, and the private
+coaching insights are NEVER in the manager payload (strengths only).
 
 PHASE-5 MERGE TOPOLOGY: built on phase-5-insights-worker (off main);
 the temporal-language fix stacked on phase-5-insights-temporal; the
@@ -235,9 +252,9 @@ surveillance — that shapes the architecture.
 - Coach tone is a product rule, not styling: no red anywhere on the dashboard, and
   low scores read as supportive copy. Score-band copy and colors are unit-tested.
 - `/api/summary/today` was DELETED in 4d (it was unauthenticated, service-role, and
-  cross-user). The eight service-role sites enumerated above still hold — entries
+  cross-user). The eleven service-role sites enumerated above still hold — entries
   1–6 each pinned to one authenticated identity, 7–8 the Phase-5 CRON_SECRET-gated
-  batch jobs.
+  batch jobs, 9–11 the Phase-6 manager-view endpoints (session-authed, manages-gated).
 - Styling: the dashboard's CSS module + next/font (Fraunces display face) is the
   pattern the settings pages migrate TOWARD later — not an exception to undo.
   Charts are hand-rolled SVG; reach for recharts only if date navigation or richer
@@ -488,11 +505,14 @@ surveillance — that shapes the architecture.
 
 ## Current phase
 
-See the CURRENT PHASE block at the top — that's the live one. Phases 1–5 are done
-and merged to main (Phase 4 via merge 9895b4a, Phase 5 via merge 0765749). Phase 5
-is COMPLETE but NOT DEPLOYED — go-live is deferred to Phase 8 (see the top block);
-do not assume the crons are running or deploy them early. Phase 6 (manager / team
-view) is next per the playbook.
+See the CURRENT PHASE block at the top — that's the live one. Phases 1–6 are done
+and merged to main (Phase 4 via merge 9895b4a, Phase 5 via merge 0765749, Phase 6
+via merge 9b1f6ee). Phase 6 added migrations 0012 (orgs/teams), 0013 (notifications),
+and 0014 (access_logs), applied by hand to dev. Phases 5 and 6 are COMPLETE but NOT
+DEPLOYED — go-live is deferred to Phase 8 (see the top block); do not assume the crons
+are running, the team view is live, or those migrations are on prod. The remaining
+Phase-6 piece is team-level AI insights (paid); Phase 7 (integrations) follows per the
+playbook.
 
 ## Commands
 
